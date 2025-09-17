@@ -77,31 +77,29 @@ function normalizeDate(value: unknown): Date | null {
   return null
 }
 
-const REQUIRED_HEADERS: Array<keyof BosRow> = [
-  'Order Number',
-  'Order Date',
-  'Delivery Date',
-  'Dispatch Date',
-  'Packing Date',
-  'Order Status',
-  'Customer Name',
-  'Customer Email',
-  'Customer Phone',
-  'Billing Address',
-  'Billing City',
-  'Billing State',
-  'Billing Pincode',
-  'Shipping Address',
-  'Shipping City',
-  'Shipping State',
-  'Shipping Pincode',
-  'Rack',
-  'Offline Order Items',
-  'Notes',
-  'Gift Message',
-  'Channel',
-  'Area',
-]
+// Only the fields required to render events in the calendar.
+const REQUIRED_FIELDS: Array<keyof BosRow> = ['Order Number', 'Delivery Date']
+
+function normalizeHeaderName(header: string): string {
+  return header
+    .toLowerCase()
+    .replace(/\uFEFF/g, '') // strip BOM if present
+    .replace(/[_\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function getValueFromRow(row: Record<string, unknown>, candidates: string[]): unknown {
+  const lookup = new Map<string, unknown>()
+  for (const key of Object.keys(row)) {
+    lookup.set(normalizeHeaderName(key), (row as any)[key])
+  }
+  for (const c of candidates) {
+    const norm = normalizeHeaderName(c)
+    if (lookup.has(norm)) return lookup.get(norm)
+  }
+  return undefined
+}
 
 type ViewMode = 'day' | '3day' | 'week' | 'month'
 
@@ -137,21 +135,31 @@ function App() {
         alert('The selected file has no rows in the first sheet.')
         return
       }
-      const headers = new Set(Object.keys(json[0] ?? {}))
-      const missing = REQUIRED_HEADERS.filter((h) => !headers.has(h as string))
-      if (missing.length > 0) {
-        alert('Missing required columns: ' + missing.join(', '))
+      // Validate only minimal required fields using case-insensitive, flexible matching
+      const headerSet = new Set((Object.keys(json[0] ?? {})).map((h) => normalizeHeaderName(h)))
+      const orderNumberSynonyms = ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID']
+      const deliveryDateSynonyms = ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery']
+      const hasOrderNumber = orderNumberSynonyms.some((h) => headerSet.has(normalizeHeaderName(h)))
+      const hasDeliveryDate = deliveryDateSynonyms.some((h) => headerSet.has(normalizeHeaderName(h)))
+      if (!hasOrderNumber || !hasDeliveryDate) {
+        alert('This file must include at least Order Number and Delivery Date columns.')
         return
       }
       const mapped = json
         .map((r): OrderEvent | null => {
-          const delivery = normalizeDate(r['Delivery Date'])
-          if (!delivery) return null
+          const orderNumber = getValueFromRow(r as any, ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID'])
+          const deliveryRaw = getValueFromRow(r as any, ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery'])
+          const delivery = normalizeDate(deliveryRaw)
+          if (!orderNumber || !delivery) return null
+          const resource: BosRow = { ...(r as any) }
+          // Ensure canonical keys exist for downstream UI
+          ;(resource as any)['Order Number'] = String(orderNumber)
+          ;(resource as any)['Delivery Date'] = deliveryRaw as any
           return {
-            title: r['Order Number'],
+            title: String(orderNumber),
             start: startOfDay(delivery),
             end: endOfDay(delivery),
-            resource: r,
+            resource,
           }
         })
         .filter(Boolean) as OrderEvent[]

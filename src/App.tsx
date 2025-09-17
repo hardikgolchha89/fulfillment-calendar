@@ -266,10 +266,10 @@ function App() {
               endAccessor="end"
               date={currentDate}
               view={rbcView}
-              onNavigate={(d) => setCurrentDate(startOfDay(d))}
+              onNavigate={(d: Date) => setCurrentDate(startOfDay(d))}
               onView={() => {}}
               eventPropGetter={eventStyleGetter}
-              onSelectEvent={(e) => setDrawer({ open: true, row: e.resource })}
+              onSelectEvent={(e: any) => setDrawer({ open: true, row: e.resource })}
               popup
               length={view === '3day' ? 3 : undefined}
               style={{ height: '100%' }}

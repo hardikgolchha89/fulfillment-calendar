@@ -215,12 +215,10 @@ function computeStats(row: BosRow): { hampers: number; units: number } {
   for (const it of items) {
     const q = it.quantity || 1
     units += q
-    const { title } = classifySkuAndTitle(it.name)
-    const t = title.toLowerCase()
-    // Count hampers if packaging SKU prefixes or title keywords indicate a hamper/box/bag
+    // Count hampers strictly by SKU prefixes only
     const skuPrefix = classifySkuAndTitle(it.name).sku
     const packagingSku = /^(PKG|HAMP|BOX|BAG)\b/i.test(skuPrefix)
-    if (packagingSku || /\bhamper\b|gift box|ecom gift box|\bbox\b|\bbag\b/.test(t)) hampers += q
+    if (packagingSku) hampers += q
   }
   return { hampers, units }
 }

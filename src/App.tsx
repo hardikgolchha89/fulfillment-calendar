@@ -129,14 +129,7 @@ function parseItemsFromOfflineCell(cell: string): ParsedLineItem[] {
       quantity = parseInt(qtyMatch[1] || '1', 10)
       name = part.replace(/\s-\s\d+\s*$/, '').trim()
     }
-    // Remove obvious SKU-like prefixes when present, keep readable name
-    // e.g., BARK-CB-90GM-Choco Butterscotch Barks (90g) => Choco Butterscotch Barks (90g)
-    const dashChunks = name.split('-')
-    if (dashChunks.length > 2) {
-      // Heuristic: drop leading code-like segments if they are uppercase/skuish
-      const maybeName = dashChunks.slice(2).join('-').trim()
-      if (maybeName.length >= 6) name = maybeName
-    }
+    // Keep full string; SKU vs Title will be derived later without dropping prefixes
     items.push({ name, quantity, raw: part })
   }
   return items
@@ -194,21 +187,24 @@ function getParsedLineItems(row: BosRow): ParsedLineItem[] {
 }
 
 function classifySkuAndTitle(name: string): { sku: string; title: string } {
-  // Rule: ALL CAPS and/or numeric-hyphen tokens constitute SKU; first token that has lowercase => start of title
-  const tokens = name.split(/\s*-\s*/).filter(Boolean)
+  // Preserve all initial ALL-CAPS/number hyphen-separated segments as SKU.
+  // The first segment containing lowercase starts the Title.
+  const raw = name.trim()
+  const tokens = raw.split(/\s*-\s*/).filter(Boolean)
   const skuParts: string[] = []
   const titleParts: string[] = []
+  let inTitle = false
   for (const token of tokens) {
     const hasLowercase = /[a-z]/.test(token)
-    const isAllCapsOrNum = !hasLowercase
-    if (titleParts.length === 0 && isAllCapsOrNum) {
+    if (!inTitle && !hasLowercase) {
       skuParts.push(token)
     } else {
+      inTitle = true
       titleParts.push(token)
     }
   }
   const sku = skuParts.join('-').trim()
-  const title = (titleParts.join(' - ').trim() || name)
+  const title = (titleParts.join(' - ').trim() || raw)
   return { sku, title }
 }
 
@@ -221,7 +217,10 @@ function computeStats(row: BosRow): { hampers: number; units: number } {
     units += q
     const { title } = classifySkuAndTitle(it.name)
     const t = title.toLowerCase()
-    if (/\bhamper\b|gift box|ecom gift box|\bbox\b/.test(t)) hampers += q
+    // Count hampers if packaging SKU prefixes or title keywords indicate a hamper/box/bag
+    const skuPrefix = classifySkuAndTitle(it.name).sku
+    const packagingSku = /^(PKG|HAMP|BOX|BAG)\b/i.test(skuPrefix)
+    if (packagingSku || /\bhamper\b|gift box|ecom gift box|\bbox\b|\bbag\b/.test(t)) hampers += q
   }
   return { hampers, units }
 }

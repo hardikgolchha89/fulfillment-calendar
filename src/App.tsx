@@ -101,6 +101,96 @@ function getValueFromRow(row: Record<string, unknown>, candidates: string[]): un
   return undefined
 }
 
+type ParsedLineItem = {
+  name: string
+  quantity: number
+  raw?: string
+}
+
+function splitItemsList(cell: string): string[] {
+  // Items often come comma-separated in one line. Also handle newlines.
+  const parts = cell
+    .split(/\r?\n|,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/) // split on newlines or commas not inside quotes
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return parts
+}
+
+function parseItemsFromOfflineCell(cell: string): ParsedLineItem[] {
+  const items: ParsedLineItem[] = []
+  for (const part of splitItemsList(cell)) {
+    // Typical: "SKU-Product Name - 1" or "Product Name - 2"
+    const qtyMatch = part.match(/\s-\s(\d+)\s*$/)
+    let quantity = 1
+    let name = part
+    if (qtyMatch) {
+      quantity = parseInt(qtyMatch[1] || '1', 10)
+      name = part.replace(/\s-\s\d+\s*$/, '').trim()
+    }
+    // Remove obvious SKU-like prefixes when present, keep readable name
+    // e.g., BARK-CB-90GM-Choco Butterscotch Barks (90g) => Choco Butterscotch Barks (90g)
+    const dashChunks = name.split('-')
+    if (dashChunks.length > 2) {
+      // Heuristic: drop leading code-like segments if they are uppercase/skuish
+      const maybeName = dashChunks.slice(2).join('-').trim()
+      if (maybeName.length >= 6) name = maybeName
+    }
+    items.push({ name, quantity, raw: part })
+  }
+  return items
+}
+
+function parseItemsFromNotes(cell: string): ParsedLineItem[] {
+  const items: ParsedLineItem[] = []
+  const lines = cell.split(/\r?\n/)
+  for (const line of lines) {
+    const s = line.trim()
+    if (!s) continue
+    // Patterns: "1 x CB 200" or "- 2 x Item" or "* Item Name" (implicit qty 1)
+    let m = s.match(/^[-*]\s*(\d+)\s*x\s*(.+)$/i)
+    if (m) {
+      items.push({ name: m[2].trim(), quantity: parseInt(m[1], 10), raw: s })
+      continue
+    }
+    m = s.match(/^(\d+)\s*x\s*(.+)$/i)
+    if (m) {
+      items.push({ name: m[2].trim(), quantity: parseInt(m[1], 10), raw: s })
+      continue
+    }
+    m = s.match(/^[-*]\s*(.+)$/)
+    if (m) {
+      items.push({ name: m[1].trim(), quantity: 1, raw: s })
+      continue
+    }
+  }
+  return items
+}
+
+function getParsedLineItems(row: BosRow): ParsedLineItem[] {
+  const offlineCell = (getValueFromRow(row as any, [
+    'Offline Order Items',
+    'Items',
+    'Products Ordered',
+  ]) || '') as string
+  const notesCell = (getValueFromRow(row as any, ['Notes', 'Special Instructions']) || '') as string
+
+  let parsed: ParsedLineItem[] = []
+  if (typeof offlineCell === 'string' && offlineCell.trim().length > 0) {
+    parsed = parseItemsFromOfflineCell(offlineCell)
+  }
+  // Fallback or supplement from notes if nothing parsed
+  if (parsed.length === 0 && typeof notesCell === 'string' && notesCell.trim().length > 0) {
+    parsed = parseItemsFromNotes(notesCell)
+  }
+  // Consolidate same-name items
+  const consolidated = new Map<string, number>()
+  for (const it of parsed) {
+    const key = it.name.toLowerCase()
+    consolidated.set(key, (consolidated.get(key) || 0) + (it.quantity || 1))
+  }
+  return Array.from(consolidated.entries()).map(([k, qty]) => ({ name: parsed.find((p) => p.name.toLowerCase() === k)?.name || k, quantity: qty }))
+}
+
 type ViewMode = 'day' | '3day' | 'week' | 'month'
 
 function App() {
@@ -345,7 +435,36 @@ function App() {
                 </div>
               </Section>
               <Section title="Items">
-                <pre className="whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm">{drawer.row['Offline Order Items']}</pre>
+                {(() => {
+                  const items = getParsedLineItems(drawer.row)
+                  if (items.length === 0) {
+                    return (
+                      <pre className="whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm">{String(
+                        (drawer.row['Offline Order Items'] as unknown as string) || drawer.row['Notes'] || '-'
+                      )}</pre>
+                    )
+                  }
+                  return (
+                    <div className="overflow-hidden rounded border">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 text-left text-gray-600">
+                          <tr>
+                            <th className="px-3 py-2">Item</th>
+                            <th className="px-3 py-2 w-20 text-right">Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((it, idx) => (
+                            <tr key={idx} className={idx % 2 ? 'bg-white' : 'bg-gray-50/40'}>
+                              <td className="px-3 py-2">{it.name}</td>
+                              <td className="px-3 py-2 text-right font-medium">{it.quantity}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })()}
               </Section>
               {(drawer.row['Notes'] || drawer.row['Gift Message']) && (
                 <Section title="Notes & Gift Message">

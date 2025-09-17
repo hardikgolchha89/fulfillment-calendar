@@ -77,8 +77,9 @@ function normalizeDate(value: unknown): Date | null {
   return null
 }
 
-// Only the fields required to render events in the calendar.
-const REQUIRED_FIELDS: Array<keyof BosRow> = ['Order Number', 'Delivery Date']
+// Minimal fields required to render events in the calendar.
+// (Kept for reference if needed)
+// const REQUIRED_FIELDS: Array<keyof BosRow> = ['Order Number', 'Delivery Date']
 
 function normalizeHeaderName(header: string): string {
   return header
@@ -105,6 +106,7 @@ type ParsedLineItem = {
   name: string
   quantity: number
   raw?: string
+  sku?: string
 }
 
 function splitItemsList(cell: string): string[] {
@@ -192,16 +194,22 @@ function getParsedLineItems(row: BosRow): ParsedLineItem[] {
 }
 
 function classifySkuAndTitle(name: string): { sku: string; title: string } {
-  // Numbers or ALL CAPS => SKU; first Title/Sentence case chunk onward => title
-  const tokens = name.split(/\s*[-|]\s*/).filter(Boolean)
+  // Rule: ALL CAPS and/or numeric-hyphen tokens constitute SKU; first token that has lowercase => start of title
+  const tokens = name.split(/\s*-\s*/).filter(Boolean)
   const skuParts: string[] = []
   const titleParts: string[] = []
-  for (const t of tokens) {
-    const isAllCapsOrNum = /^[^a-z]*$/.test(t)
-    if (titleParts.length === 0 && isAllCapsOrNum) skuParts.push(t)
-    else titleParts.push(t)
+  for (const token of tokens) {
+    const hasLowercase = /[a-z]/.test(token)
+    const isAllCapsOrNum = !hasLowercase
+    if (titleParts.length === 0 && isAllCapsOrNum) {
+      skuParts.push(token)
+    } else {
+      titleParts.push(token)
+    }
   }
-  return { sku: skuParts.join('-').trim(), title: (titleParts.join(' - ').trim() || name) }
+  const sku = skuParts.join('-').trim()
+  const title = (titleParts.join(' - ').trim() || name)
+  return { sku, title }
 }
 
 function computeStats(row: BosRow): { hampers: number; units: number } {
@@ -308,13 +316,14 @@ function App() {
 
   const eventStyleGetter = (event: OrderEvent) => {
     const status = (event.resource['Order Status'] || '').toString().toLowerCase()
-    let bg = '#64748b'
-    if (status.includes('pending')) bg = '#f59e0b'
-    else if (status.includes('printed')) bg = '#6366f1'
-    else if (status.includes('packed')) bg = '#22c55e'
-    else if (status.includes('shipped')) bg = '#3b82f6'
-    else if (status.includes('cancel')) bg = '#ef4444'
-    return { style: { backgroundColor: bg, border: '0', color: 'white' } }
+    // Lighter backgrounds for better text legibility
+    let bg = '#e2e8f0' // slate-200
+    if (status.includes('pending')) bg = '#fde68a' // amber-200
+    else if (status.includes('printed')) bg = '#c7d2fe' // indigo-200
+    else if (status.includes('packed')) bg = '#bbf7d0' // green-200
+    else if (status.includes('shipped')) bg = '#bfdbfe' // blue-200
+    else if (status.includes('cancel')) bg = '#fecaca' // red-200
+    return { style: { backgroundColor: bg, border: '1px solid #cbd5e1', color: '#111827' } }
   }
 
   const handleNavigate = (action: 'prev' | 'next' | 'today') => {
@@ -393,151 +402,201 @@ function App() {
           </label>
         </div>
       </div>
-      <div
-        className={`relative flex-1 ${events.length === 0 ? 'grid place-items-center' : ''}`}
-        onDragOver={(e) => {
-          e.preventDefault()
-          setDragOver(true)
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-      >
-        {events.length === 0 ? (
-          <div className="mx-4 max-w-xl rounded-lg border bg-white p-8 text-center shadow-sm">
-            <p className="text-lg font-medium">Upload your Bulk Order Sheet (CSV/XLSX) to view orders.</p>
-            <p className="mt-2 text-sm text-gray-600">Drag & drop or use the Upload button above.</p>
-          </div>
-        ) : (
-          <div className="h-full">
-            <RBC
-              localizer={localizer}
-              events={events}
-              startAccessor="start"
-              endAccessor="end"
-              date={currentDate}
-              view={rbcView}
-              onNavigate={(d: Date) => setCurrentDate(startOfDay(d))}
-              onView={() => {}}
-              eventPropGetter={eventStyleGetter}
-              onSelectEvent={(e: any) => setDrawer({ open: true, row: e.resource })}
-              components={{ event: EventCell as any }}
-              popup
-              length={undefined}
-              style={{ height: '100%' }}
-            />
-          </div>
-        )}
-        {dragOver && (
-          <div className="pointer-events-none absolute inset-0 grid place-items-center bg-blue-500/10">
-            <div className="rounded-lg border-2 border-dashed border-blue-500 bg-white/80 p-6 text-blue-700">
-              Drop file to import BOS
+      <div className="relative flex-1 overflow-hidden md:flex md:flex-row">
+        {/* Calendar column */}
+        <div
+          className={`relative h-full w-full md:w-3/4 ${events.length === 0 ? 'grid place-items-center' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragOver(true)
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+        >
+          {events.length === 0 ? (
+            <div className="mx-4 max-w-xl rounded-lg border bg-white p-8 text-center shadow-sm">
+              <p className="text-lg font-medium">Upload your Bulk Order Sheet (CSV/XLSX) to view orders.</p>
+              <p className="mt-2 text-sm text-gray-600">Drag & drop or use the Upload button above.</p>
             </div>
-          </div>
-        )}
-      </div>
-      {drawer.open && drawer.row && (
-        <aside className="fixed inset-y-0 right-0 w-full max-w-xl transform border-l bg-white shadow-xl transition md:translate-x-0">
+          ) : (
+            <div className="h-full">
+              <RBC
+                localizer={localizer}
+                events={events}
+                startAccessor="start"
+                endAccessor="end"
+                date={currentDate}
+                view={rbcView}
+                onNavigate={(d: Date) => setCurrentDate(startOfDay(d))}
+                onView={() => {}}
+                eventPropGetter={eventStyleGetter}
+                onSelectEvent={(e: any) => setDrawer({ open: true, row: e.resource })}
+                components={{ event: EventCell as any }}
+                popup
+                length={undefined}
+                style={{ height: '100%' }}
+              />
+            </div>
+          )}
+          {dragOver && (
+            <div className="pointer-events-none absolute inset-0 grid place-items-center bg-blue-500/10">
+              <div className="rounded-lg border-2 border-dashed border-blue-500 bg-white/80 p-6 text-blue-700">
+                Drop file to import BOS
+              </div>
+            </div>
+          )}
+        </div>
+        {/* Preview column */}
+        <aside className="hidden h-full w-full overflow-y-auto border-l md:block md:w-1/4">
           <div className="flex h-full flex-col">
             <div className="flex items-center justify-between border-b px-4 py-3">
-              <div className="text-xl font-bold">{drawer.row['Order Number']}</div>
-              <button className="rounded border px-3 py-1" onClick={() => setDrawer({ open: false, row: null })}>
-                Close
-              </button>
+              <div className="text-xl font-bold">{drawer.row?.['Order Number'] || 'Preview'}</div>
             </div>
             <div className="flex-1 overflow-y-auto p-4">
-              <div className="mb-4">
-                <StatusPill status={(drawer.row['Order Status'] || '') as string} />
-              </div>
-              <Section title="Key Dates">
-                <KeyDate label="Delivery Date" value={drawer.row['Delivery Date']} strong />
-                <KeyDate label="Dispatch Date" value={drawer.row['Dispatch Date']} />
-                <KeyDate label="Packing Date" value={drawer.row['Packing Date']} />
-              </Section>
-              <Section title="Rack">
-                {drawer.row['Rack'] ? (
-                  <div className="rounded bg-gray-100 px-3 py-2 font-medium">{drawer.row['Rack']}</div>
-                ) : (
-                  <div className="text-red-600">No Rack assigned</div>
-                )}
-              </Section>
-              <Section title="Customer">
-                <div className="space-y-1">
-                  <div className="font-medium">{drawer.row['Customer Name']}</div>
-                  <div className="text-sm text-gray-600">{drawer.row['Customer Email']}</div>
-                  <div className="text-sm text-gray-600">{drawer.row['Customer Phone']}</div>
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <div className="text-sm font-medium text-gray-700">Billing</div>
-                    <div className="text-sm text-gray-800">
-                      {drawer.row['Billing Address']}
+              {drawer.row ? (
+                <>
+                  <div className="mb-4">
+                    <StatusPill status={(drawer.row['Order Status'] || '') as string} />
+                  </div>
+                  <Section title="Key Dates">
+                    {(() => {
+                      const delivery = normalizeDate(drawer.row['Delivery Date'])
+                      const dispatch = normalizeDate(drawer.row['Dispatch Date']) || (delivery ? addDays(delivery, -Math.max(1, Number((txConfig as any).dispatchers ?? 1))) : null)
+                      const packing = normalizeDate(drawer.row['Packing Date']) || (delivery ? addDays(delivery, -Math.max(1, Number((txConfig as any).packers ?? 2))) : null)
+                      return (
+                        <>
+                          <KeyDate label="Delivery Date" value={delivery || drawer.row['Delivery Date']} strong />
+                          <KeyDate label="Dispatch Date" value={dispatch} />
+                          <KeyDate label="Packing Date" value={packing} />
+                        </>
+                      )
+                    })()}
+                  </Section>
+                  <Section title="Rack">
+                    {drawer.row['Rack'] ? (
+                      <div className="rounded bg-gray-100 px-3 py-2 font-medium">{drawer.row['Rack']}</div>
+                    ) : (
+                      <div className="text-red-600">No Rack assigned</div>
+                    )}
+                  </Section>
+                  <Section title="Customer">
+                    <div className="space-y-1">
+                      <div className="font-medium">{drawer.row['Customer Name']}</div>
+                      <div className="text-sm text-gray-600">{drawer.row['Customer Email']}</div>
+                      <div className="text-sm text-gray-600">{drawer.row['Customer Phone']}</div>
+                    </div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
                       <div>
-                        {drawer.row['Billing City']}, {drawer.row['Billing State']} {drawer.row['Billing Pincode']}
+                        <div className="text-sm font-medium text-gray-700">Billing</div>
+                        <div className="text-sm text-gray-800">
+                          {drawer.row['Billing Address']}
+                          <div>
+                            {drawer.row['Billing City']}, {drawer.row['Billing State']} {drawer.row['Billing Pincode']}
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-700">Shipping</div>
+                        <div className="text-sm text-gray-800">
+                          {drawer.row['Shipping Address']}
+                          <div>
+                            {drawer.row['Shipping City']}, {drawer.row['Shipping State']} {drawer.row['Shipping Pincode']}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-gray-700">Shipping</div>
-                    <div className="text-sm text-gray-800">
-                      {drawer.row['Shipping Address']}
-                      <div>
-                        {drawer.row['Shipping City']}, {drawer.row['Shipping State']} {drawer.row['Shipping Pincode']}
+                  </Section>
+                  <Section title="Items">
+                    {(() => {
+                      const items = getParsedLineItems(drawer.row)
+                      if (items.length === 0) {
+                        return (
+                          <pre className="whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm">{String(
+                            (drawer.row['Offline Order Items'] as unknown as string) || drawer.row['Notes'] || '-'
+                          )}</pre>
+                        )
+                      }
+                      const rows = items.map((it) => {
+                        const { sku, title } = classifySkuAndTitle(it.name)
+                        return { sku, title, qty: it.quantity }
+                      })
+                      return (
+                        <div className="overflow-hidden rounded border">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 text-left text-gray-600">
+                              <tr>
+                                <th className="px-3 py-2 w-36">SKU</th>
+                                <th className="px-3 py-2">Item</th>
+                                <th className="px-3 py-2 w-20 text-right">Qty</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((r, idx) => (
+                                <tr key={idx} className={idx % 2 ? 'bg-white' : 'bg-gray-50/40'}>
+                                  <td className="px-3 py-2 text-xs text-gray-600">{r.sku}</td>
+                                  <td className="px-3 py-2">{r.title}</td>
+                                  <td className="px-3 py-2 text-right font-medium">{r.qty}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    })()}
+                  </Section>
+                  {(drawer.row['Notes'] || drawer.row['Gift Message']) && (
+                    <Section title="Notes & Gift Message">
+                      <div className="rounded border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-gray-800">
+                        {[drawer.row['Notes'], drawer.row['Gift Message']]
+                          .filter(Boolean)
+                          .map((v) => String(v))
+                          .join('\n\n')}
                       </div>
-                    </div>
-                  </div>
-                </div>
-              </Section>
-              <Section title="Items">
-                {(() => {
-                  const items = getParsedLineItems(drawer.row)
-                  if (items.length === 0) {
+                    </Section>
+                  )}
+                  {(() => {
+                    const exclude = new Set([
+                      'Order Number','Order Status','Delivery Date','Dispatch Date','Packing Date','Rack','Area',
+                      'Customer Name','Customer Email','Customer Phone',
+                      'Billing Address','Billing City','Billing State','Billing Pincode',
+                      'Shipping Address','Shipping City','Shipping State','Shipping Pincode',
+                      'Offline Order Items','Notes','Gift Message'
+                    ].map(normalizeHeaderName))
+                    const entries = Object.entries(drawer.row)
+                      .filter(([k,v]) => !exclude.has(normalizeHeaderName(k)) && v !== undefined && v !== null && String(v).trim() !== '' && String(v).toLowerCase() !== 'null')
+                    if (entries.length === 0) return null
                     return (
-                      <pre className="whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm">{String(
-                        (drawer.row['Offline Order Items'] as unknown as string) || drawer.row['Notes'] || '-'
-                      )}</pre>
+                      <Section title="All Fields">
+                        <div className="overflow-hidden rounded border">
+                          <table className="w-full text-xs">
+                            <tbody>
+                              {entries.map(([k,v], idx) => (
+                                <tr key={k} className={idx % 2 ? 'bg-white' : 'bg-gray-50/40'}>
+                                  <td className="px-3 py-1.5 font-medium text-gray-600 align-top">{k}</td>
+                                  <td className="px-3 py-1.5">{String(v)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </Section>
                     )
-                  }
-                  return (
-                    <div className="overflow-hidden rounded border">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 text-left text-gray-600">
-                          <tr>
-                            <th className="px-3 py-2">Item</th>
-                            <th className="px-3 py-2 w-20 text-right">Qty</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {items.map((it, idx) => (
-                            <tr key={idx} className={idx % 2 ? 'bg-white' : 'bg-gray-50/40'}>
-                              <td className="px-3 py-2">{it.name}</td>
-                              <td className="px-3 py-2 text-right font-medium">{it.quantity}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                  })()}
+                  {drawer.row['Area'] && (
+                    <div className="mt-4">
+                      <span className="rounded-full bg-gray-100 px-3 py-1 text-sm">{drawer.row['Area']}</span>
                     </div>
-                  )
-                })()}
-              </Section>
-              {(drawer.row['Notes'] || drawer.row['Gift Message']) && (
-                <Section title="Notes & Gift Message">
-                  <div className="rounded border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-gray-800">
-                    {[drawer.row['Notes'], drawer.row['Gift Message']]
-                      .filter(Boolean)
-                      .map((v) => String(v))
-                      .join('\n\n')}
-                  </div>
-                </Section>
-              )}
-              {drawer.row['Area'] && (
-                <div className="mt-4">
-                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm">{drawer.row['Area']}</span>
-                </div>
+                  )}
+                </>
+              ) : (
+                <div className="p-4 text-sm text-gray-600">Select an order to see details here.</div>
               )}
             </div>
           </div>
         </aside>
-      )}
+      </div>
+      {/* end content */}
+      {/* Settings modal */}
       {settingsOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/30">
           <div className="w-full max-w-md rounded bg-white p-4 shadow-lg">

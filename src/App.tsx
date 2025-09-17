@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Calendar as RBC, dateFnsLocalizer, View, Views } from 'react-big-calendar'
-import { addDays, endOfDay, format, parse, startOfDay, startOfWeek as dfStartOfWeek, getDay as dfGetDay } from 'date-fns'
+import { addDays, addMonths, addWeeks, endOfDay, format, parse, startOfDay, startOfWeek as dfStartOfWeek, getDay as dfGetDay } from 'date-fns'
 import { Upload, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
@@ -168,7 +168,7 @@ function parseItemsFromNotes(cell: string): ParsedLineItem[] {
 
 function getParsedLineItems(row: BosRow): ParsedLineItem[] {
   const offlineCell = (getValueFromRow(row as any, [
-    'Offline Order Items',
+  'Offline Order Items',
     'Items',
     'Products Ordered',
   ]) || '') as string
@@ -191,12 +191,57 @@ function getParsedLineItems(row: BosRow): ParsedLineItem[] {
   return Array.from(consolidated.entries()).map(([k, qty]) => ({ name: parsed.find((p) => p.name.toLowerCase() === k)?.name || k, quantity: qty }))
 }
 
-type ViewMode = 'day' | '3day' | 'week' | 'month'
+function classifySkuAndTitle(name: string): { sku: string; title: string } {
+  // Numbers or ALL CAPS => SKU; first Title/Sentence case chunk onward => title
+  const tokens = name.split(/\s*[-|]\s*/).filter(Boolean)
+  const skuParts: string[] = []
+  const titleParts: string[] = []
+  for (const t of tokens) {
+    const isAllCapsOrNum = /^[^a-z]*$/.test(t)
+    if (titleParts.length === 0 && isAllCapsOrNum) skuParts.push(t)
+    else titleParts.push(t)
+  }
+  return { sku: skuParts.join('-').trim(), title: (titleParts.join(' - ').trim() || name) }
+}
+
+function computeStats(row: BosRow): { hampers: number; units: number } {
+  const items = getParsedLineItems(row)
+  let units = 0
+  let hampers = 0
+  for (const it of items) {
+    const q = it.quantity || 1
+    units += q
+    const { title } = classifySkuAndTitle(it.name)
+    const t = title.toLowerCase()
+    if (/\bhamper\b|gift box|ecom gift box|\bbox\b/.test(t)) hampers += q
+  }
+  return { hampers, units }
+}
+
+function EventCell({ event }: { event: OrderEvent }) {
+  const { hampers, units } = computeStats(event.resource)
+  return (
+    <div className="text-[11px] leading-tight">
+      <div className="font-medium">{event.title}</div>
+      <div className="text-gray-700">Hampers: {hampers} • Units: {units}</div>
+    </div>
+  )
+}
+
+type ViewMode = 'day' | 'week' | 'month'
 
 function App() {
   const [events, setEvents] = useState<OrderEvent[]>([])
   const [currentDate, setCurrentDate] = useState<Date>(startOfDay(new Date()))
-  const [view, setView] = useState<ViewMode>('week')
+  const [view, setView] = useState<ViewMode>('month')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [txConfig, setTxConfig] = useState<{ packers: number; collaterals: number; dispatchers: number; holders: number }>(() => {
+    try {
+      const raw = localStorage.getItem('tx-config')
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    return { packers: 2, collaterals: 2, dispatchers: 1, holders: 0 }
+  })
   const [drawer, setDrawer] = useState<{ open: boolean; row: BosRow | null }>({ open: false, row: null })
 
   const rbcView: View = useMemo(() => {
@@ -274,8 +319,15 @@ function App() {
 
   const handleNavigate = (action: 'prev' | 'next' | 'today') => {
     if (action === 'today') setCurrentDate(startOfDay(new Date()))
-    else if (action === 'prev') setCurrentDate(addDays(currentDate, view === '3day' ? -3 : -1))
-    else if (action === 'next') setCurrentDate(addDays(currentDate, view === '3day' ? 3 : 1))
+    else if (action === 'prev') {
+      if (view === 'day') setCurrentDate(addDays(currentDate, -1))
+      else if (view === 'week') setCurrentDate(addWeeks(currentDate, -1))
+      else setCurrentDate(addMonths(currentDate, -1))
+    } else if (action === 'next') {
+      if (view === 'day') setCurrentDate(addDays(currentDate, 1))
+      else if (view === 'week') setCurrentDate(addWeeks(currentDate, 1))
+      else setCurrentDate(addMonths(currentDate, 1))
+    }
   }
 
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -309,7 +361,6 @@ function App() {
             {(
               [
                 { k: 'day', label: 'Day' },
-                { k: '3day', label: '3-Day' },
                 { k: 'week', label: 'Week' },
                 { k: 'month', label: 'Month' },
               ] as Array<{ k: ViewMode; label: string }>
@@ -323,6 +374,7 @@ function App() {
               </button>
             ))}
           </div>
+          <button className="rounded border px-3 py-1" onClick={() => setSettingsOpen(true)}>Settings</button>
           <div className="flex items-center gap-1">
             <button className="rounded border p-1" onClick={() => handleNavigate('prev')}>
               <ChevronLeft className="h-4 w-4" />
@@ -368,8 +420,9 @@ function App() {
               onView={() => {}}
               eventPropGetter={eventStyleGetter}
               onSelectEvent={(e: any) => setDrawer({ open: true, row: e.resource })}
+              components={{ event: EventCell as any }}
               popup
-              length={view === '3day' ? 3 : undefined}
+              length={undefined}
               style={{ height: '100%' }}
             />
           </div>
@@ -484,6 +537,39 @@ function App() {
             </div>
           </div>
         </aside>
+      )}
+      {settingsOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/30">
+          <div className="w-full max-w-md rounded bg-white p-4 shadow-lg">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-lg font-semibold">Settings: T - X days</div>
+              <button className="rounded border px-2 py-1" onClick={() => setSettingsOpen(false)}>Close</button>
+            </div>
+            <div className="space-y-3">
+              {([
+                { key: 'packers', label: 'Packers' },
+                { key: 'collaterals', label: 'Collaterals' },
+                { key: 'dispatchers', label: 'Dispatchers' },
+                { key: 'holders', label: 'Holders' },
+              ] as const).map(({ key, label }) => (
+                <label key={key} className="flex items-center justify-between">
+                  <span className="text-sm text-gray-700">{label}</span>
+                  <input
+                    type="number"
+                    className="w-24 rounded border px-2 py-1"
+                    value={txConfig[key]}
+                    onChange={(e) => {
+                      const next = { ...txConfig, [key]: Number(e.target.value || 0) }
+                      setTxConfig(next)
+                      try { localStorage.setItem('tx-config', JSON.stringify(next)) } catch {}
+                    }}
+                    min={0}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

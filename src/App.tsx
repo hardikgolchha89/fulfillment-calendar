@@ -496,7 +496,10 @@ function App() {
                 onNavigate={(d: Date) => setCurrentDate(startOfDay(d))}
                 onView={() => {}}
                 eventPropGetter={eventStyleGetter}
-                onSelectEvent={(e: any) => setDrawer({ open: true, row: e.resource })}
+              onSelectEvent={(e: any) => {
+                setDrawer({ open: true, row: e.resource })
+                if (e?.start) setCurrentDate(startOfDay(new Date(e.start)))
+              }}
                 components={{ event: EventCell as any }}
                 popup
                 length={undefined}

@@ -162,10 +162,16 @@ function parseItemsFromNotes(cell: string): ParsedLineItem[] {
 }
 
 function getParsedLineItems(row: BosRow): ParsedLineItem[] {
+  // If this event has an injected, pre-parsed items list (e.g., per-date grouping), prefer that
+  const injected = (row as any)['__itemsForEvent'] as ParsedLineItem[] | undefined
+  if (Array.isArray(injected) && injected.length > 0) return injected
+
   const offlineCell = (getValueFromRow(row as any, [
   'Offline Order Items',
     'Items',
     'Products Ordered',
+    'Add Offline Order',
+    'Add Order',
   ]) || '') as string
   const notesCell = (getValueFromRow(row as any, ['Notes', 'Special Instructions']) || '') as string
 
@@ -277,32 +283,72 @@ function App() {
       }
       // Validate only minimal required fields using case-insensitive, flexible matching
       const headerSet = new Set((Object.keys(json[0] ?? {})).map((h) => normalizeHeaderName(h)))
-      const orderNumberSynonyms = ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID']
-      const deliveryDateSynonyms = ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery']
+      const orderNumberSynonyms = ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID', 'Order Alias']
+      const deliveryDateSynonyms = ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery', 'Dispatch Date (First)']
       const hasOrderNumber = orderNumberSynonyms.some((h) => headerSet.has(normalizeHeaderName(h)))
       const hasDeliveryDate = deliveryDateSynonyms.some((h) => headerSet.has(normalizeHeaderName(h)))
       if (!hasOrderNumber || !hasDeliveryDate) {
         alert('This file must include at least Order Number and Delivery Date columns.')
         return
       }
-      const mapped = json
-        .map((r): OrderEvent | null => {
-          const orderNumber = getValueFromRow(r as any, ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID'])
-          const deliveryRaw = getValueFromRow(r as any, ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery'])
-          const delivery = normalizeDate(deliveryRaw)
-          if (!orderNumber || !delivery) return null
+      // Some sheets provide items with a leading date token per item like "22-09-25-SKU-Name-Qty".
+      // For such rows, split items by the leading date and create separate events per date.
+      const eventsOut: OrderEvent[] = []
+      for (const r of json as any[]) {
+        const orderNumber = getValueFromRow(r, ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID', 'Order Alias'])
+        const deliveryRawFallback = getValueFromRow(r, ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery', 'Dispatch Date (First)'])
+        if (!orderNumber) continue
+        const allItemsCell = String(
+          (getValueFromRow(r, ['Add Offline Order', 'Add Order']) as any) ||
+          (getValueFromRow(r, ['Offline Order Items', 'Items', 'Products Ordered']) as any) ||
+          ''
+        )
+
+        // Detect per-item date pattern at the start: DD-MM-YY-...
+        const parts = splitItemsList(allItemsCell)
+        const datedGroups = new Map<string, string[]>()
+        for (const p of parts) {
+          const m = p.match(/^(\d{2}-\d{2}-\d{2})-(.+)$/)
+          if (m) {
+            const d = m[1]
+            const rest = m[2]
+            if (!datedGroups.has(d)) datedGroups.set(d, [])
+            datedGroups.get(d)!.push(rest)
+          }
+        }
+
+        if (datedGroups.size > 0) {
+          // Build one event per date using grouped items
+          for (const [dstr, items] of Array.from(datedGroups.entries())) {
+            const delivery = normalizeDate(dstr)
+            if (!delivery) continue
+            const resource: BosRow = { ...(r as any) }
+            ;(resource as any)['Order Number'] = String(orderNumber)
+            ;(resource as any)['Delivery Date'] = dstr
+            ;(resource as any)['__itemsForEvent'] = parseItemsFromOfflineCell(items.join(', '))
+            eventsOut.push({
+              title: String(orderNumber),
+              start: startOfDay(delivery),
+              end: endOfDay(delivery),
+              resource,
+            })
+          }
+        } else {
+          // Fallback: single delivery date field
+          const delivery = normalizeDate(deliveryRawFallback)
+          if (!delivery) continue
           const resource: BosRow = { ...(r as any) }
-          // Ensure canonical keys exist for downstream UI
           ;(resource as any)['Order Number'] = String(orderNumber)
-          ;(resource as any)['Delivery Date'] = deliveryRaw as any
-          return {
+          ;(resource as any)['Delivery Date'] = deliveryRawFallback as any
+          eventsOut.push({
             title: String(orderNumber),
             start: startOfDay(delivery),
             end: endOfDay(delivery),
             resource,
-          }
-        })
-        .filter(Boolean) as OrderEvent[]
+          })
+        }
+      }
+      const mapped = eventsOut
       setEvents(mapped)
     }
     if (isCsv) reader.readAsText(file)

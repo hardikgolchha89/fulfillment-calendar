@@ -71,7 +71,12 @@ function normalizeDate(value: unknown): Date | null {
   if (typeof value === 'string') {
     const iso = Date.parse(value)
     if (!Number.isNaN(iso)) return startOfDay(new Date(iso))
-    const parsed = parse(value, 'dd/MM/yyyy', new Date())
+    // Support common sheet formats
+    let parsed = parse(value, 'dd-MM-yyyy', new Date())
+    if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
+    parsed = parse(value, 'dd-MM-yy', new Date())
+    if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
+    parsed = parse(value, 'dd/MM/yyyy', new Date())
     if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
   }
   return null
@@ -691,7 +696,7 @@ function KeyDate({ label, value, strong = false }: { label: string; value?: unkn
   return (
     <div className="flex items-center gap-2 text-sm">
       <div className="w-36 text-gray-600">{label}</div>
-      <div className={strong ? 'font-semibold' : ''}>{d ? format(d, 'dd MMM yyyy') : '-'}</div>
+      <div className={strong ? 'font-semibold' : ''}>{d ? format(d, 'dd-MM-yyyy') : '-'}</div>
     </div>
   )
 }

@@ -65,10 +65,27 @@ function excelDateToJSDate(serial: number): Date {
   return dateInfo
 }
 
+function parseStrictDDMMYY(value: string): Date | null {
+  const m = value.match(/^(\d{2})-(\d{2})-(\d{2})$/)
+  if (!m) return null
+  const dd = Number(m[1])
+  const mm = Number(m[2])
+  const yy = Number(m[3])
+  if (mm < 1 || mm > 12) return null
+  if (dd < 1 || dd > 31) return null
+  const year = 2000 + yy
+  const d = new Date(year, mm - 1, dd)
+  if (d.getFullYear() !== year || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null
+  return startOfDay(d)
+}
+
 function normalizeDate(value: unknown): Date | null {
   if (!value) return null
   if (isExcelDate(value)) return startOfDay(excelDateToJSDate(value as number))
   if (typeof value === 'string') {
+    // Strict DD-MM-YY first
+    const strict = parseStrictDDMMYY(value.trim())
+    if (strict) return strict
     const iso = Date.parse(value)
     if (!Number.isNaN(iso)) return startOfDay(new Date(iso))
     // Prefer DD-MM-YY (two-digit year) as per sheet input

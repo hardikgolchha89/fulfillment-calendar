@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Calendar as RBC, dateFnsLocalizer, View, Views } from 'react-big-calendar'
 import { addDays, addMonths, addWeeks, endOfDay, format, parse, startOfDay, startOfWeek as dfStartOfWeek, getDay as dfGetDay } from 'date-fns'
 import { Upload, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -303,28 +303,27 @@ function EventCell({ event }: { event: OrderEvent }) {
 }
 
 // Month cell totals renderer
-function MonthDateHeader(props: any) {
-  const { label, date, events } = props
-  // Sum totals for this date
-  const totals = (events as OrderEvent[])
-    .filter((e) => startOfDay(e.start).getTime() === startOfDay(date).getTime())
-    .map((e) => computeStats(e.resource))
-    .reduce((acc, cur) => ({ hampers: acc.hampers + cur.hampers, units: acc.units + cur.units }), { hampers: 0, units: 0 })
-  return (
-    <div className="flex items-center justify-between">
-      <span>{label}</span>
-      {(totals.hampers > 0 || totals.units > 0) && (
-        <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700">
-          H {totals.hampers} • U {totals.units}
-        </span>
-      )}
-    </div>
-  )
-}
+// (moved into App to safely access state)
 
 type ViewMode = 'day' | 'week' | 'month'
 
 function App() {
+  // Month cell totals renderer (receives label/date via RBC)
+  const MonthDateHeader = (props: any) => {
+    const { label, date } = props
+    const totals = events
+      .filter((e) => startOfDay(e.start).getTime() === startOfDay(date).getTime())
+      .map((e) => computeStats(e.resource))
+      .reduce((acc, cur) => ({ hampers: acc.hampers + cur.hampers, units: acc.units + cur.units }), { hampers: 0, units: 0 })
+    return (
+      <div className="flex items-center justify-between">
+        <span>{label}</span>
+        {(totals.hampers > 0 || totals.units > 0) && (
+          <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700">H {totals.hampers} • U {totals.units}</span>
+        )}
+      </div>
+    )
+  }
   const [events, setEvents] = useState<OrderEvent[]>([])
   const [currentDate, setCurrentDate] = useState<Date>(startOfDay(new Date()))
   const [view, setView] = useState<ViewMode>('month')
@@ -477,6 +476,66 @@ function App() {
     if (isCsv) reader.readAsText(file)
     else reader.readAsArrayBuffer(file)
   }
+
+  // Load default dataset from public/data/orders.json if present
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const res = await fetch('/data/orders.json', { cache: 'no-store' })
+        if (!res.ok) return
+        const payload = await res.json()
+        if (!Array.isArray(payload)) return
+
+        // Expect an array of plain rows; reuse the same building logic
+        const json = payload as BosRow[]
+        const eventsOut: OrderEvent[] = []
+        for (const r of json as any[]) {
+          const orderNumber = getValueFromRow(r, ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID', 'Order Alias'])
+          const deliveryRawFallback = getValueFromRow(r, ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery', 'Dispatch Date (First)'])
+          if (!orderNumber) continue
+
+          const allItemsCell = String(
+            (getValueFromRow(r, ['Add Offline Order', 'Add Order']) as any) ||
+            (getValueFromRow(r, ['Offline Order Items', 'Items', 'Products Ordered']) as any) ||
+            ''
+          )
+          const parts = splitItemsList(allItemsCell)
+          const datedGroups = new Map<string, string[]>()
+          for (const p of parts) {
+            const m = p.match(/^(\d{2}-\d{2}-\d{2})-(.+)$/)
+            if (m) {
+              const d = m[1]
+              const rest = m[2]
+              if (!datedGroups.has(d)) datedGroups.set(d, [])
+              datedGroups.get(d)!.push(rest)
+            }
+          }
+
+          if (datedGroups.size > 0) {
+            for (const [dstr, items] of Array.from(datedGroups.entries())) {
+              const delivery = normalizeDate(dstr)
+              if (!delivery) continue
+              const resource: BosRow = { ...(r as any) }
+              ;(resource as any)['Order Number'] = String(orderNumber)
+              ;(resource as any)['Delivery Date'] = dstr
+              ;(resource as any)['__eventDate'] = delivery
+              ;(resource as any)['__itemsForEvent'] = parseItemsFromOfflineCell(items.join(', '))
+              eventsOut.push({ title: String(orderNumber), start: startOfDay(delivery), end: endOfDay(delivery), resource, allDay: true })
+            }
+          } else {
+            const delivery = normalizeDate(deliveryRawFallback)
+            if (!delivery) continue
+            const resource: BosRow = { ...(r as any) }
+            ;(resource as any)['Order Number'] = String(orderNumber)
+            ;(resource as any)['Delivery Date'] = deliveryRawFallback as any
+            ;(resource as any)['__eventDate'] = delivery
+            eventsOut.push({ title: String(orderNumber), start: startOfDay(delivery), end: endOfDay(delivery), resource, allDay: true })
+          }
+        }
+        setEvents(eventsOut)
+      } catch {}
+    })()
+  }, [])
 
   const [dragOver, setDragOver] = useState(false)
 

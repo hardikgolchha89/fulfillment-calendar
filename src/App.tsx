@@ -66,106 +66,109 @@ function excelDateToJSDate(serial: number): Date {
 }
 
 function parseStrictDDMMYY(value: string): Date | null {
-  console.log(`🔍 parseStrictDDMMYY called with: "${value}"`)
+  const shouldDebug = value === '10-03-25' || value.includes('03-25') || value.includes('10-03')
+  if (shouldDebug) console.log(`🔍 parseStrictDDMMYY called with: "${value}"`)
+  
   const m = value.match(/^(\d{2})-(\d{2})-(\d{2})$/)
   if (!m) {
-    console.log(`❌ parseStrictDDMMYY: No match for pattern DD-MM-YY`)
+    if (shouldDebug) console.log(`❌ parseStrictDDMMYY: No match for pattern DD-MM-YY`)
     return null
   }
   const dd = Number(m[1])
   const mm = Number(m[2])
   const yy = Number(m[3])
-  console.log(`📅 parseStrictDDMMYY: Parsed dd=${dd}, mm=${mm}, yy=${yy}`)
+  if (shouldDebug) console.log(`📅 parseStrictDDMMYY: Parsed dd=${dd}, mm=${mm}, yy=${yy}`)
   
   if (mm < 1 || mm > 12) {
-    console.log(`❌ parseStrictDDMMYY: Invalid month ${mm}`)
+    if (shouldDebug) console.log(`❌ parseStrictDDMMYY: Invalid month ${mm}`)
     return null
   }
   if (dd < 1 || dd > 31) {
-    console.log(`❌ parseStrictDDMMYY: Invalid day ${dd}`)
+    if (shouldDebug) console.log(`❌ parseStrictDDMMYY: Invalid day ${dd}`)
     return null
   }
   const year = 2000 + yy
   const d = new Date(year, mm - 1, dd)
-  console.log(`📅 parseStrictDDMMYY: Created date: ${d.toDateString()}`)
+  if (shouldDebug) console.log(`📅 parseStrictDDMMYY: Created date: ${d.toDateString()}`)
   
   if (d.getFullYear() !== year || d.getMonth() !== mm - 1 || d.getDate() !== dd) {
-    console.log(`❌ parseStrictDDMMYY: Date validation failed`)
+    if (shouldDebug) console.log(`❌ parseStrictDDMMYY: Date validation failed`)
     return null
   }
   const result = startOfDay(d)
-  console.log(`✅ parseStrictDDMMYY: Returning ${result.toDateString()}`)
+  if (shouldDebug) console.log(`✅ parseStrictDDMMYY: Returning ${result.toDateString()}`)
   return result
 }
 
 function normalizeDate(value: unknown): Date | null {
-  console.log(`🚀 normalizeDate called with:`, value, `(type: ${typeof value})`)
+  const shouldDebug = typeof value === 'string' && (value === '10-03-25' || value.includes('03-25') || value.includes('10-03'))
+  if (shouldDebug) console.log(`🚀 normalizeDate called with:`, value, `(type: ${typeof value})`)
   
   if (!value) {
-    console.log(`❌ normalizeDate: No value provided`)
+    if (shouldDebug) console.log(`❌ normalizeDate: No value provided`)
     return null
   }
   
   if (isExcelDate(value)) {
-    console.log(`📊 normalizeDate: Excel date detected, converting...`)
+    if (shouldDebug) console.log(`📊 normalizeDate: Excel date detected, converting...`)
     const result = startOfDay(excelDateToJSDate(value as number))
-    console.log(`✅ normalizeDate: Excel date result: ${result.toDateString()}`)
+    if (shouldDebug) console.log(`✅ normalizeDate: Excel date result: ${result.toDateString()}`)
     return result
   }
   
   if (typeof value === 'string') {
     const s = value.trim()
-    console.log(`📝 normalizeDate: Processing string: "${s}"`)
+    if (shouldDebug) console.log(`📝 normalizeDate: Processing string: "${s}"`)
     
     // Strict DD-MM-YY first - this should handle most cases
-    console.log(`🔍 normalizeDate: Trying parseStrictDDMMYY...`)
+    if (shouldDebug) console.log(`🔍 normalizeDate: Trying parseStrictDDMMYY...`)
     const strict = parseStrictDDMMYY(s)
     if (strict) {
-      console.log(`✅ normalizeDate: parseStrictDDMMYY succeeded: ${strict.toDateString()}`)
+      if (shouldDebug) console.log(`✅ normalizeDate: parseStrictDDMMYY succeeded: ${strict.toDateString()}`)
       return strict
     }
-    console.log(`❌ normalizeDate: parseStrictDDMMYY failed, trying other methods...`)
+    if (shouldDebug) console.log(`❌ normalizeDate: parseStrictDDMMYY failed, trying other methods...`)
 
     // Only accept true ISO 8601 (yyyy-mm-dd) with Date.parse - but only for 4-digit years
     if (/^\d{4}-\d{2}-\d{2}/.test(s) && s.length >= 10) {
-      console.log(`🌍 normalizeDate: Trying ISO date parsing for: "${s}"`)
+      if (shouldDebug) console.log(`🌍 normalizeDate: Trying ISO date parsing for: "${s}"`)
       const iso = Date.parse(s)
       if (!Number.isNaN(iso)) {
         const result = startOfDay(new Date(iso))
-        console.log(`✅ normalizeDate: ISO date result: ${result.toDateString()}`)
+        if (shouldDebug) console.log(`✅ normalizeDate: ISO date result: ${result.toDateString()}`)
         return result
       }
-      console.log(`❌ normalizeDate: ISO date parsing failed`)
+      if (shouldDebug) console.log(`❌ normalizeDate: ISO date parsing failed`)
     }
 
     // Fallback to date-fns parse for other common formats
-    console.log(`🔄 normalizeDate: Trying date-fns parse with dd-MM-yy...`)
+    if (shouldDebug) console.log(`🔄 normalizeDate: Trying date-fns parse with dd-MM-yy...`)
     let parsed = parse(s, 'dd-MM-yy', new Date())
     if (!Number.isNaN(parsed.getTime())) {
       const result = startOfDay(parsed)
-      console.log(`✅ normalizeDate: dd-MM-yy result: ${result.toDateString()}`)
+      if (shouldDebug) console.log(`✅ normalizeDate: dd-MM-yy result: ${result.toDateString()}`)
       return result
     }
-    console.log(`❌ normalizeDate: dd-MM-yy failed, trying dd-MM-yyyy...`)
+    if (shouldDebug) console.log(`❌ normalizeDate: dd-MM-yy failed, trying dd-MM-yyyy...`)
     
     parsed = parse(s, 'dd-MM-yyyy', new Date())
     if (!Number.isNaN(parsed.getTime())) {
       const result = startOfDay(parsed)
-      console.log(`✅ normalizeDate: dd-MM-yyyy result: ${result.toDateString()}`)
+      if (shouldDebug) console.log(`✅ normalizeDate: dd-MM-yyyy result: ${result.toDateString()}`)
       return result
     }
-    console.log(`❌ normalizeDate: dd-MM-yyyy failed, trying dd/MM/yyyy...`)
+    if (shouldDebug) console.log(`❌ normalizeDate: dd-MM-yyyy failed, trying dd/MM/yyyy...`)
     
     parsed = parse(s, 'dd/MM/yyyy', new Date())
     if (!Number.isNaN(parsed.getTime())) {
       const result = startOfDay(parsed)
-      console.log(`✅ normalizeDate: dd/MM/yyyy result: ${result.toDateString()}`)
+      if (shouldDebug) console.log(`✅ normalizeDate: dd/MM/yyyy result: ${result.toDateString()}`)
       return result
     }
-    console.log(`❌ normalizeDate: All parsing methods failed`)
+    if (shouldDebug) console.log(`❌ normalizeDate: All parsing methods failed`)
   }
   
-  console.log(`❌ normalizeDate: Returning null - no valid date found`)
+  if (shouldDebug) console.log(`❌ normalizeDate: Returning null - no valid date found`)
   return null
 }
 
@@ -394,8 +397,8 @@ function App() {
         const deliveryRawFallback = getValueFromRow(r, ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery', 'Dispatch Date (First)'])
         
         // Debug logging for specific problematic order
-        if (String(orderNumber).includes('Sample_Puma_NB')) {
-          console.log(`🎯 DEBUG: Processing Sample_Puma_NB row:`)
+        if (String(orderNumber).includes('Sample_Puma_NB') || String(deliveryRawFallback).includes('10-03-25')) {
+          console.log(`🎯 DEBUG: Processing order: ${orderNumber}`)
           console.log(`📋 Raw row data:`, r)
           console.log(`🔍 Order Number found:`, orderNumber)
           console.log(`📅 Delivery Date raw value:`, deliveryRawFallback)
@@ -440,12 +443,11 @@ function App() {
           }
         } else {
           // Fallback: single delivery date field
-          console.log(`🔄 Processing single delivery date for order: ${orderNumber}`)
           const delivery = normalizeDate(deliveryRawFallback)
           
           // Debug logging for specific problematic order
-          if (String(orderNumber).includes('Sample_Puma_NB')) {
-            console.log(`🎯 DEBUG: normalizeDate result for Sample_Puma_NB:`, delivery)
+          if (String(orderNumber).includes('Sample_Puma_NB') || String(deliveryRawFallback).includes('10-03-25')) {
+            console.log(`🎯 DEBUG: normalizeDate result for ${orderNumber}:`, delivery)
             console.log(`🎯 DEBUG: delivery date string:`, delivery?.toDateString())
             console.log(`🎯 DEBUG: delivery date ISO:`, delivery?.toISOString())
           }
@@ -467,8 +469,8 @@ function App() {
           }
           
           // Debug logging for specific problematic order
-          if (String(orderNumber).includes('Sample_Puma_NB')) {
-            console.log(`🎯 DEBUG: Created event for Sample_Puma_NB:`, event)
+          if (String(orderNumber).includes('Sample_Puma_NB') || String(deliveryRawFallback).includes('10-03-25')) {
+            console.log(`🎯 DEBUG: Created event for ${orderNumber}:`, event)
             console.log(`🎯 DEBUG: Event start date:`, event.start.toDateString())
             console.log(`🎯 DEBUG: Event start month:`, event.start.getMonth() + 1)
             console.log(`🎯 DEBUG: Event start year:`, event.start.getFullYear())
@@ -602,51 +604,51 @@ function App() {
       </div>
       <div className="relative flex-1 overflow-hidden md:flex md:flex-row">
         {/* Calendar column */}
-        <div
+      <div
           className={`relative h-full w-full md:w-3/4 ${events.length === 0 ? 'grid place-items-center' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDragOver(true)
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={onDrop}
-        >
-          {events.length === 0 ? (
-            <div className="mx-4 max-w-xl rounded-lg border bg-white p-8 text-center shadow-sm">
-              <p className="text-lg font-medium">Upload your Bulk Order Sheet (CSV/XLSX) to view orders.</p>
-              <p className="mt-2 text-sm text-gray-600">Drag & drop or use the Upload button above.</p>
-            </div>
-          ) : (
-            <div className="h-full">
-              <RBC
-                localizer={localizer}
-                events={events}
-                startAccessor="start"
-                endAccessor="end"
-                date={currentDate}
-                view={rbcView}
-                onNavigate={(d: Date) => setCurrentDate(startOfDay(d))}
-                onView={() => {}}
-                eventPropGetter={eventStyleGetter}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+      >
+        {events.length === 0 ? (
+          <div className="mx-4 max-w-xl rounded-lg border bg-white p-8 text-center shadow-sm">
+            <p className="text-lg font-medium">Upload your Bulk Order Sheet (CSV/XLSX) to view orders.</p>
+            <p className="mt-2 text-sm text-gray-600">Drag & drop or use the Upload button above.</p>
+          </div>
+        ) : (
+          <div className="h-full">
+            <RBC
+              localizer={localizer}
+              events={events}
+              startAccessor="start"
+              endAccessor="end"
+              date={currentDate}
+              view={rbcView}
+              onNavigate={(d: Date) => setCurrentDate(startOfDay(d))}
+              onView={() => {}}
+              eventPropGetter={eventStyleGetter}
               onSelectEvent={(e: any) => {
                 setDrawer({ open: true, row: e.resource })
                 if (e?.start) setCurrentDate(startOfDay(new Date(e.start)))
               }}
                 components={{ event: EventCell as any }}
-                popup
+              popup
                 length={undefined}
-                style={{ height: '100%' }}
-              />
+              style={{ height: '100%' }}
+            />
+          </div>
+        )}
+        {dragOver && (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center bg-blue-500/10">
+            <div className="rounded-lg border-2 border-dashed border-blue-500 bg-white/80 p-6 text-blue-700">
+              Drop file to import BOS
             </div>
-          )}
-          {dragOver && (
-            <div className="pointer-events-none absolute inset-0 grid place-items-center bg-blue-500/10">
-              <div className="rounded-lg border-2 border-dashed border-blue-500 bg-white/80 p-6 text-blue-700">
-                Drop file to import BOS
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
+      </div>
         {/* Preview column */}
         <aside className="hidden h-full w-full overflow-y-auto border-l md:block md:w-1/4">
           <div className="flex h-full flex-col">
@@ -656,10 +658,10 @@ function App() {
             <div className="flex-1 overflow-y-auto p-4">
               {drawer.row ? (
                 <>
-                  <div className="mb-4">
-                    <StatusPill status={(drawer.row['Order Status'] || '') as string} />
-                  </div>
-                  <Section title="Key Dates">
+              <div className="mb-4">
+                <StatusPill status={(drawer.row['Order Status'] || '') as string} />
+              </div>
+              <Section title="Key Dates">
                     {(() => {
                       const delivery = normalizeDate(drawer.row['Delivery Date'])
                       const dispatch = normalizeDate(drawer.row['Dispatch Date']) || (delivery ? addDays(delivery, -Math.max(1, Number((txConfig as any).dispatchers ?? 1))) : null)
@@ -672,42 +674,42 @@ function App() {
                         </>
                       )
                     })()}
-                  </Section>
-                  <Section title="Rack">
-                    {drawer.row['Rack'] ? (
-                      <div className="rounded bg-gray-100 px-3 py-2 font-medium">{drawer.row['Rack']}</div>
-                    ) : (
-                      <div className="text-red-600">No Rack assigned</div>
-                    )}
-                  </Section>
-                  <Section title="Customer">
-                    <div className="space-y-1">
-                      <div className="font-medium">{drawer.row['Customer Name']}</div>
-                      <div className="text-sm text-gray-600">{drawer.row['Customer Email']}</div>
-                      <div className="text-sm text-gray-600">{drawer.row['Customer Phone']}</div>
-                    </div>
-                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+              </Section>
+              <Section title="Rack">
+                {drawer.row['Rack'] ? (
+                  <div className="rounded bg-gray-100 px-3 py-2 font-medium">{drawer.row['Rack']}</div>
+                ) : (
+                  <div className="text-red-600">No Rack assigned</div>
+                )}
+              </Section>
+              <Section title="Customer">
+                <div className="space-y-1">
+                  <div className="font-medium">{drawer.row['Customer Name']}</div>
+                  <div className="text-sm text-gray-600">{drawer.row['Customer Email']}</div>
+                  <div className="text-sm text-gray-600">{drawer.row['Customer Phone']}</div>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="text-sm font-medium text-gray-700">Billing</div>
+                    <div className="text-sm text-gray-800">
+                      {drawer.row['Billing Address']}
                       <div>
-                        <div className="text-sm font-medium text-gray-700">Billing</div>
-                        <div className="text-sm text-gray-800">
-                          {drawer.row['Billing Address']}
-                          <div>
-                            {drawer.row['Billing City']}, {drawer.row['Billing State']} {drawer.row['Billing Pincode']}
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium text-gray-700">Shipping</div>
-                        <div className="text-sm text-gray-800">
-                          {drawer.row['Shipping Address']}
-                          <div>
-                            {drawer.row['Shipping City']}, {drawer.row['Shipping State']} {drawer.row['Shipping Pincode']}
-                          </div>
-                        </div>
+                        {drawer.row['Billing City']}, {drawer.row['Billing State']} {drawer.row['Billing Pincode']}
                       </div>
                     </div>
-                  </Section>
-                  <Section title="Items">
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-gray-700">Shipping</div>
+                    <div className="text-sm text-gray-800">
+                      {drawer.row['Shipping Address']}
+                      <div>
+                        {drawer.row['Shipping City']}, {drawer.row['Shipping State']} {drawer.row['Shipping Pincode']}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Section>
+              <Section title="Items">
                     {(() => {
                       const items = getParsedLineItems(drawer.row)
                       if (items.length === 0) {
@@ -744,17 +746,17 @@ function App() {
                         </div>
                       )
                     })()}
-                  </Section>
-                  {(drawer.row['Notes'] || drawer.row['Gift Message']) && (
-                    <Section title="Notes & Gift Message">
-                      <div className="rounded border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-gray-800">
-                        {[drawer.row['Notes'], drawer.row['Gift Message']]
-                          .filter(Boolean)
-                          .map((v) => String(v))
-                          .join('\n\n')}
-                      </div>
-                    </Section>
-                  )}
+              </Section>
+              {(drawer.row['Notes'] || drawer.row['Gift Message']) && (
+                <Section title="Notes & Gift Message">
+                  <div className="rounded border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-gray-800">
+                    {[drawer.row['Notes'], drawer.row['Gift Message']]
+                      .filter(Boolean)
+                      .map((v) => String(v))
+                      .join('\n\n')}
+                  </div>
+                </Section>
+              )}
                   {(() => {
                     const exclude = new Set([
                       'Order Number','Order Status','Delivery Date','Dispatch Date','Packing Date','Rack','Area',
@@ -783,10 +785,10 @@ function App() {
                       </Section>
                     )
                   })()}
-                  {drawer.row['Area'] && (
-                    <div className="mt-4">
-                      <span className="rounded-full bg-gray-100 px-3 py-1 text-sm">{drawer.row['Area']}</span>
-                    </div>
+              {drawer.row['Area'] && (
+                <div className="mt-4">
+                  <span className="rounded-full bg-gray-100 px-3 py-1 text-sm">{drawer.row['Area']}</span>
+                </div>
                   )}
                 </>
               ) : (

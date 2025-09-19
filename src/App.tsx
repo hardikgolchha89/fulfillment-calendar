@@ -690,9 +690,24 @@ function App() {
               </div>
               <Section title="Key Dates">
                     {(() => {
+                      // Debug logging for Sample_Puma_NB
+                      if (String(drawer.row['Order Number']).includes('Sample_Puma_NB')) {
+                        console.log(`🎯 KEY DATES DEBUG for Sample_Puma_NB:`)
+                        console.log(`  Raw Delivery Date:`, drawer.row['Delivery Date'])
+                        console.log(`  Raw Dispatch Date:`, drawer.row['Dispatch Date'])
+                        console.log(`  Raw Packing Date:`, drawer.row['Packing Date'])
+                      }
+                      
                       const delivery = normalizeDate(drawer.row['Delivery Date'])
                       const dispatch = normalizeDate(drawer.row['Dispatch Date']) || (delivery ? addDays(delivery, -Math.max(1, Number((txConfig as any).dispatchers ?? 1))) : null)
                       const packing = normalizeDate(drawer.row['Packing Date']) || (delivery ? addDays(delivery, -Math.max(1, Number((txConfig as any).packers ?? 2))) : null)
+                      
+                      if (String(drawer.row['Order Number']).includes('Sample_Puma_NB')) {
+                        console.log(`  Parsed Delivery Date:`, delivery)
+                        console.log(`  Parsed Dispatch Date:`, dispatch)
+                        console.log(`  Parsed Packing Date:`, packing)
+                      }
+                      
                       return (
                         <>
                           <KeyDate label="Delivery Date" value={delivery || drawer.row['Delivery Date']} strong />
@@ -942,7 +957,20 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function KeyDate({ label, value, strong = false }: { label: string; value?: unknown; strong?: boolean }) {
+  const shouldDebug = label === 'Delivery Date' && (String(value).includes('Sample_Puma_NB') || String(value).includes('45933'))
+  if (shouldDebug) {
+    console.log(`🎯 KeyDate DEBUG for ${label}:`)
+    console.log(`  Raw value:`, value)
+    console.log(`  Value type:`, typeof value)
+  }
+  
   const d = normalizeDate(value)
+  
+  if (shouldDebug) {
+    console.log(`  Parsed date:`, d)
+    console.log(`  Formatted:`, d ? format(d, 'dd-MM-yy') : 'null')
+  }
+  
   return (
     <div className="flex items-center gap-2 text-sm">
       <div className="w-36 text-gray-600">{label}</div>

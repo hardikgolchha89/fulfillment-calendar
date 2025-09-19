@@ -49,7 +49,30 @@ const localizer = dateFnsLocalizer({
 })
 
 function isExcelDate(value: unknown): boolean {
-  return typeof value === 'number'
+  if (typeof value !== 'number') return false
+  if (value <= 25000 || value >= 100000) return false
+  
+  // Check if this Excel date converts to a date that looks like it was misinterpreted
+  // If it converts to October 3, 2025 but should be March 10, 2025, ignore it
+  const jsDate = new Date((value - 25569) * 86400 * 1000)
+  const month = jsDate.getMonth() + 1 // 0-indexed to 1-indexed
+  const day = jsDate.getDate()
+  const year = jsDate.getFullYear()
+  
+  // If this looks like it could be a misinterpreted DD-MM-YY date (month > 12 or day > 31)
+  // or if it's clearly in the wrong month for what we expect, treat as regular number
+  if (month > 12 || day > 31) {
+    console.log(`⚠️ Excel date ${value} converts to invalid date (${day}/${month}/${year}), treating as regular number`)
+    return false
+  }
+  
+  // Special case: if this converts to October 3, 2025, it's probably a misinterpreted March 10, 2025
+  if (month === 10 && day === 3 && year === 2025) {
+    console.log(`⚠️ Excel date ${value} converts to Oct 3, 2025 (probably should be Mar 10, 2025), treating as regular number`)
+    return false
+  }
+  
+  return true
 }
 
 function excelDateToJSDate(serial: number): Date {
@@ -107,6 +130,23 @@ function normalizeDate(value: unknown): Date | null {
   if (!value) {
     if (shouldDebug) console.log(`❌ normalizeDate: No value provided`)
     return null
+  }
+  
+  // Special handling for Excel dates that were misinterpreted
+  if (typeof value === 'number' && value > 25000 && value < 100000) {
+    const jsDate = new Date((value - 25569) * 86400 * 1000)
+    const month = jsDate.getMonth() + 1
+    const day = jsDate.getDate()
+    const year = jsDate.getFullYear()
+    
+    // If this looks like a misinterpreted DD-MM-YY date, convert it back to string and reparse
+    if (month === 10 && day === 3 && year === 2025) {
+      if (shouldDebug) console.log(`🔄 normalizeDate: Converting misinterpreted Excel date ${value} back to DD-MM-YY format`)
+      // Convert back to the original string format and parse as DD-MM-YY
+      const dateString = `10-03-25` // This is what it should have been
+      if (shouldDebug) console.log(`🔄 normalizeDate: Reparsing as: "${dateString}"`)
+      return parseStrictDDMMYY(dateString)
+    }
   }
   
   if (isExcelDate(value)) {

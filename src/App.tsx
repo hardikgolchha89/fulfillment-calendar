@@ -83,22 +83,25 @@ function normalizeDate(value: unknown): Date | null {
   if (!value) return null
   if (isExcelDate(value)) return startOfDay(excelDateToJSDate(value as number))
   if (typeof value === 'string') {
-    // Strict DD-MM-YY first
-    const strict = parseStrictDDMMYY(value.trim())
+    const s = value.trim()
+    // Strict DD-MM-YY first - this should handle most cases
+    const strict = parseStrictDDMMYY(s)
     if (strict) return strict
-    // Only accept true ISO 8601 (yyyy-mm-dd) with Date.parse
-if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
-  const iso = Date.parse(value)
-  if (!Number.isNaN(iso)) return startOfDay(new Date(iso))
-}
 
-// Prefer DD-MM-YY (two-digit year) as per sheet input
-    let parsed = parse(value, 'dd-MM-yy', new Date())
+    // Only accept true ISO 8601 (yyyy-mm-dd) with Date.parse - but only for 4-digit years
+    if (/^\d{4}-\d{2}-\d{2}/.test(s) && s.length >= 10) {
+      const iso = Date.parse(s)
+      if (!Number.isNaN(iso)) return startOfDay(new Date(iso))
+    }
+
+    // Fallback to date-fns parse for other common formats
+    let parsed = parse(s, 'dd-MM-yy', new Date())
     if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
-    // Support DD-MM-YYYY as fallback
-    parsed = parse(value, 'dd-MM-yyyy', new Date())
+    
+    parsed = parse(s, 'dd-MM-yyyy', new Date())
     if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
-    parsed = parse(value, 'dd/MM/yyyy', new Date())
+    
+    parsed = parse(s, 'dd/MM/yyyy', new Date())
     if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
   }
   return null

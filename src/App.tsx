@@ -86,9 +86,13 @@ function normalizeDate(value: unknown): Date | null {
     // Strict DD-MM-YY first
     const strict = parseStrictDDMMYY(value.trim())
     if (strict) return strict
-    const iso = Date.parse(value)
-    if (!Number.isNaN(iso)) return startOfDay(new Date(iso))
-    // Prefer DD-MM-YY (two-digit year) as per sheet input
+    // Only accept true ISO 8601 (yyyy-mm-dd) with Date.parse
+if (/^\d{4}-\d{2}-\d{2}/.test(value)) {
+  const iso = Date.parse(value)
+  if (!Number.isNaN(iso)) return startOfDay(new Date(iso))
+}
+
+// Prefer DD-MM-YY (two-digit year) as per sheet input
     let parsed = parse(value, 'dd-MM-yy', new Date())
     if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
     // Support DD-MM-YYYY as fallback
@@ -269,6 +273,9 @@ function App() {
   const [currentDate, setCurrentDate] = useState<Date>(startOfDay(new Date()))
   const [view, setView] = useState<ViewMode>('month')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [dateCheckerOpen, setDateCheckerOpen] = useState(false)
+  const [dateCheckerInput, setDateCheckerInput] = useState('')
+  const [dateCheckerResult, setDateCheckerResult] = useState<{ parsed: Date | null; formatted: string; error?: string } | null>(null)
   const [txConfig, setTxConfig] = useState<{ packers: number; collaterals: number; dispatchers: number; holders: number }>(() => {
     try {
       const raw = localStorage.getItem('tx-config')
@@ -405,6 +412,31 @@ function App() {
     }
   }
 
+  const testDateParsing = (input: string) => {
+    try {
+      const parsed = normalizeDate(input)
+      if (parsed) {
+        setDateCheckerResult({
+          parsed,
+          formatted: format(parsed, 'dd-MM-yy'),
+          error: undefined
+        })
+      } else {
+        setDateCheckerResult({
+          parsed: null,
+          formatted: '',
+          error: 'Could not parse date'
+        })
+      }
+    } catch (error) {
+      setDateCheckerResult({
+        parsed: null,
+        formatted: '',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      })
+    }
+  }
+
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     setDragOver(false)
@@ -450,6 +482,7 @@ function App() {
             ))}
           </div>
           <button className="rounded border px-3 py-1" onClick={() => setSettingsOpen(true)}>Settings</button>
+          <button className="rounded border px-3 py-1" onClick={() => setDateCheckerOpen(true)}>Date Checker</button>
           <div className="flex items-center gap-1">
             <button className="rounded border p-1" onClick={() => handleNavigate('prev')}>
               <ChevronLeft className="h-4 w-4" />
@@ -695,6 +728,74 @@ function App() {
                   />
                 </label>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Date Checker modal */}
+      {dateCheckerOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/30">
+          <div className="w-full max-w-lg rounded bg-white p-4 shadow-lg">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-lg font-semibold">Date Checker</div>
+              <button className="rounded border px-2 py-1" onClick={() => setDateCheckerOpen(false)}>Close</button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Enter date from your CSV column:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="flex-1 rounded border px-3 py-2"
+                    placeholder="e.g., 10-03-25, 12-07-25, 01-09-25"
+                    value={dateCheckerInput}
+                    onChange={(e) => setDateCheckerInput(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        testDateParsing(dateCheckerInput)
+                      }
+                    }}
+                  />
+                  <button 
+                    className="rounded border px-3 py-2 bg-blue-500 text-white hover:bg-blue-600"
+                    onClick={() => testDateParsing(dateCheckerInput)}
+                  >
+                    Test
+                  </button>
+                </div>
+              </div>
+              
+              {dateCheckerResult && (
+                <div className="rounded border p-3 bg-gray-50">
+                  <div className="text-sm font-medium text-gray-700 mb-2">Result:</div>
+                  {dateCheckerResult.error ? (
+                    <div className="text-red-600 text-sm">
+                      ❌ Error: {dateCheckerResult.error}
+                    </div>
+                  ) : (
+                    <div className="space-y-2 text-sm">
+                      <div>
+                        <span className="font-medium">Parsed Date:</span> {dateCheckerResult.parsed?.toDateString()}
+                      </div>
+                      <div>
+                        <span className="font-medium">Calendar Display:</span> {dateCheckerResult.formatted}
+                      </div>
+                      <div>
+                        <span className="font-medium">Calendar Position:</span> {dateCheckerResult.parsed ? format(dateCheckerResult.parsed, 'MMMM yyyy') : 'N/A'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="text-xs text-gray-500">
+                <div className="font-medium mb-1">Expected format: DD-MM-YY</div>
+                <div>Examples: 10-03-25 (March 10, 2025), 12-07-25 (July 12, 2025)</div>
+                <div>Invalid: 10-13-25 (month 13 doesn't exist), 32-01-25 (day 32 doesn't exist)</div>
+              </div>
             </div>
           </div>
         </div>

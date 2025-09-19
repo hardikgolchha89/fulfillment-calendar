@@ -537,6 +537,69 @@ function App() {
     })()
   }, [])
 
+  // Manual trigger to load the shared dataset
+  async function loadSharedData() {
+    try {
+      const res = await fetch('/data/orders.json', { cache: 'no-store' })
+      if (!res.ok) {
+        alert('Could not fetch shared dataset (public/data/orders.json).')
+        return
+      }
+      const payload = await res.json()
+      if (!Array.isArray(payload)) {
+        alert('Shared dataset is not an array.')
+        return
+      }
+      const json = payload as BosRow[]
+      const eventsOut: OrderEvent[] = []
+      for (const r of json as any[]) {
+        const orderNumber = getValueFromRow(r, ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID', 'Order Alias'])
+        const deliveryRawFallback = getValueFromRow(r, ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery', 'Dispatch Date (First)'])
+        if (!orderNumber) continue
+        const allItemsCell = String(
+          (getValueFromRow(r, ['Add Offline Order', 'Add Order']) as any) ||
+          (getValueFromRow(r, ['Offline Order Items', 'Items', 'Products Ordered']) as any) ||
+          ''
+        )
+        const parts = splitItemsList(allItemsCell)
+        const datedGroups = new Map<string, string[]>()
+        for (const p of parts) {
+          const m = p.match(/^(\d{2}-\d{2}-\d{2})-(.+)$/)
+          if (m) {
+            const d = m[1]
+            const rest = m[2]
+            if (!datedGroups.has(d)) datedGroups.set(d, [])
+            datedGroups.get(d)!.push(rest)
+          }
+        }
+        if (datedGroups.size > 0) {
+          for (const [dstr, items] of Array.from(datedGroups.entries())) {
+            const delivery = normalizeDate(dstr)
+            if (!delivery) continue
+            const resource: BosRow = { ...(r as any) }
+            ;(resource as any)['Order Number'] = String(orderNumber)
+            ;(resource as any)['Delivery Date'] = dstr
+            ;(resource as any)['__eventDate'] = delivery
+            ;(resource as any)['__itemsForEvent'] = parseItemsFromOfflineCell(items.join(', '))
+            eventsOut.push({ title: String(orderNumber), start: startOfDay(delivery), end: endOfDay(delivery), resource, allDay: true })
+          }
+        } else {
+          const delivery = normalizeDate(deliveryRawFallback)
+          if (!delivery) continue
+          const resource: BosRow = { ...(r as any) }
+          ;(resource as any)['Order Number'] = String(orderNumber)
+          ;(resource as any)['Delivery Date'] = deliveryRawFallback as any
+          ;(resource as any)['__eventDate'] = delivery
+          eventsOut.push({ title: String(orderNumber), start: startOfDay(delivery), end: endOfDay(delivery), resource, allDay: true })
+        }
+      }
+      setEvents(eventsOut)
+      alert(`Loaded ${eventsOut.length} events from shared dataset.`)
+    } catch (err) {
+      alert('Failed to load shared dataset.')
+    }
+  }
+
   const [dragOver, setDragOver] = useState(false)
 
   const eventStyleGetter = (event: OrderEvent) => {
@@ -646,6 +709,10 @@ function App() {
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
+          <button className="ml-2 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm" onClick={loadSharedData}>
+            <CalendarDays className="h-4 w-4" />
+            <span>Load Shared Data</span>
+          </button>
           <label className="ml-2 inline-flex cursor-pointer items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
             <Upload className="h-4 w-4" />
             <span>Upload</span>

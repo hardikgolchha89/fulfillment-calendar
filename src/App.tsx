@@ -66,44 +66,106 @@ function excelDateToJSDate(serial: number): Date {
 }
 
 function parseStrictDDMMYY(value: string): Date | null {
+  console.log(`🔍 parseStrictDDMMYY called with: "${value}"`)
   const m = value.match(/^(\d{2})-(\d{2})-(\d{2})$/)
-  if (!m) return null
+  if (!m) {
+    console.log(`❌ parseStrictDDMMYY: No match for pattern DD-MM-YY`)
+    return null
+  }
   const dd = Number(m[1])
   const mm = Number(m[2])
   const yy = Number(m[3])
-  if (mm < 1 || mm > 12) return null
-  if (dd < 1 || dd > 31) return null
+  console.log(`📅 parseStrictDDMMYY: Parsed dd=${dd}, mm=${mm}, yy=${yy}`)
+  
+  if (mm < 1 || mm > 12) {
+    console.log(`❌ parseStrictDDMMYY: Invalid month ${mm}`)
+    return null
+  }
+  if (dd < 1 || dd > 31) {
+    console.log(`❌ parseStrictDDMMYY: Invalid day ${dd}`)
+    return null
+  }
   const year = 2000 + yy
   const d = new Date(year, mm - 1, dd)
-  if (d.getFullYear() !== year || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null
-  return startOfDay(d)
+  console.log(`📅 parseStrictDDMMYY: Created date: ${d.toDateString()}`)
+  
+  if (d.getFullYear() !== year || d.getMonth() !== mm - 1 || d.getDate() !== dd) {
+    console.log(`❌ parseStrictDDMMYY: Date validation failed`)
+    return null
+  }
+  const result = startOfDay(d)
+  console.log(`✅ parseStrictDDMMYY: Returning ${result.toDateString()}`)
+  return result
 }
 
 function normalizeDate(value: unknown): Date | null {
-  if (!value) return null
-  if (isExcelDate(value)) return startOfDay(excelDateToJSDate(value as number))
+  console.log(`🚀 normalizeDate called with:`, value, `(type: ${typeof value})`)
+  
+  if (!value) {
+    console.log(`❌ normalizeDate: No value provided`)
+    return null
+  }
+  
+  if (isExcelDate(value)) {
+    console.log(`📊 normalizeDate: Excel date detected, converting...`)
+    const result = startOfDay(excelDateToJSDate(value as number))
+    console.log(`✅ normalizeDate: Excel date result: ${result.toDateString()}`)
+    return result
+  }
+  
   if (typeof value === 'string') {
     const s = value.trim()
+    console.log(`📝 normalizeDate: Processing string: "${s}"`)
+    
     // Strict DD-MM-YY first - this should handle most cases
+    console.log(`🔍 normalizeDate: Trying parseStrictDDMMYY...`)
     const strict = parseStrictDDMMYY(s)
-    if (strict) return strict
+    if (strict) {
+      console.log(`✅ normalizeDate: parseStrictDDMMYY succeeded: ${strict.toDateString()}`)
+      return strict
+    }
+    console.log(`❌ normalizeDate: parseStrictDDMMYY failed, trying other methods...`)
 
     // Only accept true ISO 8601 (yyyy-mm-dd) with Date.parse - but only for 4-digit years
     if (/^\d{4}-\d{2}-\d{2}/.test(s) && s.length >= 10) {
+      console.log(`🌍 normalizeDate: Trying ISO date parsing for: "${s}"`)
       const iso = Date.parse(s)
-      if (!Number.isNaN(iso)) return startOfDay(new Date(iso))
+      if (!Number.isNaN(iso)) {
+        const result = startOfDay(new Date(iso))
+        console.log(`✅ normalizeDate: ISO date result: ${result.toDateString()}`)
+        return result
+      }
+      console.log(`❌ normalizeDate: ISO date parsing failed`)
     }
 
     // Fallback to date-fns parse for other common formats
+    console.log(`🔄 normalizeDate: Trying date-fns parse with dd-MM-yy...`)
     let parsed = parse(s, 'dd-MM-yy', new Date())
-    if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
+    if (!Number.isNaN(parsed.getTime())) {
+      const result = startOfDay(parsed)
+      console.log(`✅ normalizeDate: dd-MM-yy result: ${result.toDateString()}`)
+      return result
+    }
+    console.log(`❌ normalizeDate: dd-MM-yy failed, trying dd-MM-yyyy...`)
     
     parsed = parse(s, 'dd-MM-yyyy', new Date())
-    if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
+    if (!Number.isNaN(parsed.getTime())) {
+      const result = startOfDay(parsed)
+      console.log(`✅ normalizeDate: dd-MM-yyyy result: ${result.toDateString()}`)
+      return result
+    }
+    console.log(`❌ normalizeDate: dd-MM-yyyy failed, trying dd/MM/yyyy...`)
     
     parsed = parse(s, 'dd/MM/yyyy', new Date())
-    if (!Number.isNaN(parsed.getTime())) return startOfDay(parsed)
+    if (!Number.isNaN(parsed.getTime())) {
+      const result = startOfDay(parsed)
+      console.log(`✅ normalizeDate: dd/MM/yyyy result: ${result.toDateString()}`)
+      return result
+    }
+    console.log(`❌ normalizeDate: All parsing methods failed`)
   }
+  
+  console.log(`❌ normalizeDate: Returning null - no valid date found`)
   return null
 }
 
@@ -330,6 +392,16 @@ function App() {
       for (const r of json as any[]) {
         const orderNumber = getValueFromRow(r, ['Order Number', 'Order No', 'Order#', 'Order Id', 'OrderID', 'Order Alias'])
         const deliveryRawFallback = getValueFromRow(r, ['Delivery Date', 'Delivery Dt', 'DeliveryDate', 'Delivery', 'Dispatch Date (First)'])
+        
+        // Debug logging for specific problematic order
+        if (String(orderNumber).includes('Sample_Puma_NB')) {
+          console.log(`🎯 DEBUG: Processing Sample_Puma_NB row:`)
+          console.log(`📋 Raw row data:`, r)
+          console.log(`🔍 Order Number found:`, orderNumber)
+          console.log(`📅 Delivery Date raw value:`, deliveryRawFallback)
+          console.log(`📅 Delivery Date type:`, typeof deliveryRawFallback)
+        }
+        
         if (!orderNumber) continue
         const allItemsCell = String(
           (getValueFromRow(r, ['Add Offline Order', 'Add Order']) as any) ||
@@ -368,17 +440,41 @@ function App() {
           }
         } else {
           // Fallback: single delivery date field
+          console.log(`🔄 Processing single delivery date for order: ${orderNumber}`)
           const delivery = normalizeDate(deliveryRawFallback)
-          if (!delivery) continue
+          
+          // Debug logging for specific problematic order
+          if (String(orderNumber).includes('Sample_Puma_NB')) {
+            console.log(`🎯 DEBUG: normalizeDate result for Sample_Puma_NB:`, delivery)
+            console.log(`🎯 DEBUG: delivery date string:`, delivery?.toDateString())
+            console.log(`🎯 DEBUG: delivery date ISO:`, delivery?.toISOString())
+          }
+          
+          if (!delivery) {
+            console.log(`❌ No valid delivery date found for order: ${orderNumber}`)
+            continue
+          }
+          
           const resource: BosRow = { ...(r as any) }
           ;(resource as any)['Order Number'] = String(orderNumber)
           ;(resource as any)['Delivery Date'] = deliveryRawFallback as any
-          eventsOut.push({
+          
+          const event = {
             title: String(orderNumber),
             start: startOfDay(delivery),
             end: endOfDay(delivery),
             resource,
-          })
+          }
+          
+          // Debug logging for specific problematic order
+          if (String(orderNumber).includes('Sample_Puma_NB')) {
+            console.log(`🎯 DEBUG: Created event for Sample_Puma_NB:`, event)
+            console.log(`🎯 DEBUG: Event start date:`, event.start.toDateString())
+            console.log(`🎯 DEBUG: Event start month:`, event.start.getMonth() + 1)
+            console.log(`🎯 DEBUG: Event start year:`, event.start.getFullYear())
+          }
+          
+          eventsOut.push(event)
         }
       }
       const mapped = eventsOut

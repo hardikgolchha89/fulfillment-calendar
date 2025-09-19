@@ -118,84 +118,24 @@ function parseStrictDDMMYY(value: string): Date | null {
 }
 
 function normalizeDate(value: unknown): Date | null {
-  const shouldDebug = typeof value === 'string' && (value === '10-03-25' || value.includes('03-25') || value.includes('10-03'))
-  if (shouldDebug) console.log(`🚀 normalizeDate called with:`, value, `(type: ${typeof value})`)
-  
-  if (!value) {
-    if (shouldDebug) console.log(`❌ normalizeDate: No value provided`)
-    return null
-  }
-  
-  // Handle Excel serial numbers by converting them to DD-MM-YY format
-  if (typeof value === 'number' && value > 25000 && value < 100000) {
-    if (shouldDebug) console.log(`🔄 normalizeDate: Converting Excel serial ${value} to DD-MM-YY format`)
-    const dateString = convertExcelSerialToDDMMYY(value)
-    if (dateString) {
-      if (shouldDebug) console.log(`🔄 normalizeDate: Converted to: "${dateString}"`)
-      return parseStrictDDMMYY(dateString)
-    }
-  }
-  
-  if (isExcelDate(value)) {
-    if (shouldDebug) console.log(`📊 normalizeDate: Excel date detected, converting...`)
-    const result = startOfDay(excelDateToJSDate(value as number))
-    if (shouldDebug) console.log(`✅ normalizeDate: Excel date result: ${result.toDateString()}`)
-    return result
-  }
-  
+  if (!value) return null
+
+  // ✅ Only support strict DD-MM-YY (e.g. "10-03-25")
   if (typeof value === 'string') {
-    const s = value.trim()
-    if (shouldDebug) console.log(`📝 normalizeDate: Processing string: "${s}"`)
-    
-    // Strict DD-MM-YY first - this should handle most cases
-    if (shouldDebug) console.log(`🔍 normalizeDate: Trying parseStrictDDMMYY...`)
-    const strict = parseStrictDDMMYY(s)
-    if (strict) {
-      if (shouldDebug) console.log(`✅ normalizeDate: parseStrictDDMMYY succeeded: ${strict.toDateString()}`)
-      return strict
-    }
-    if (shouldDebug) console.log(`❌ normalizeDate: parseStrictDDMMYY failed, trying other methods...`)
+    const m = value.trim().match(/^(\d{2})-(\d{2})-(\d{2})$/)
+    if (!m) return null
+    const dd = Number(m[1])
+    const mm = Number(m[2])
+    const yy = Number(m[3])
+    const year = 2000 + yy // always interpret as 20yy
 
-    // Only accept true ISO 8601 (yyyy-mm-dd) with Date.parse - but only for 4-digit years
-    if (/^\d{4}-\d{2}-\d{2}/.test(s) && s.length >= 10) {
-      if (shouldDebug) console.log(`🌍 normalizeDate: Trying ISO date parsing for: "${s}"`)
-      const iso = Date.parse(s)
-      if (!Number.isNaN(iso)) {
-        const result = startOfDay(new Date(iso))
-        if (shouldDebug) console.log(`✅ normalizeDate: ISO date result: ${result.toDateString()}`)
-        return result
-      }
-      if (shouldDebug) console.log(`❌ normalizeDate: ISO date parsing failed`)
+    const d = new Date(year, mm - 1, dd)
+    if (d.getFullYear() !== year || d.getMonth() !== mm - 1 || d.getDate() !== dd) {
+      return null // invalid dates like 32-13-25
     }
-
-    // Fallback to date-fns parse for other common formats
-    if (shouldDebug) console.log(`🔄 normalizeDate: Trying date-fns parse with dd-MM-yy...`)
-    let parsed = parse(s, 'dd-MM-yy', new Date())
-    if (!Number.isNaN(parsed.getTime())) {
-      const result = startOfDay(parsed)
-      if (shouldDebug) console.log(`✅ normalizeDate: dd-MM-yy result: ${result.toDateString()}`)
-      return result
-    }
-    if (shouldDebug) console.log(`❌ normalizeDate: dd-MM-yy failed, trying dd-MM-yyyy...`)
-    
-    parsed = parse(s, 'dd-MM-yyyy', new Date())
-    if (!Number.isNaN(parsed.getTime())) {
-      const result = startOfDay(parsed)
-      if (shouldDebug) console.log(`✅ normalizeDate: dd-MM-yyyy result: ${result.toDateString()}`)
-      return result
-    }
-    if (shouldDebug) console.log(`❌ normalizeDate: dd-MM-yyyy failed, trying dd/MM/yyyy...`)
-    
-    parsed = parse(s, 'dd/MM/yyyy', new Date())
-    if (!Number.isNaN(parsed.getTime())) {
-      const result = startOfDay(parsed)
-      if (shouldDebug) console.log(`✅ normalizeDate: dd/MM/yyyy result: ${result.toDateString()}`)
-      return result
-    }
-    if (shouldDebug) console.log(`❌ normalizeDate: All parsing methods failed`)
+    return startOfDay(d)
   }
-  
-  if (shouldDebug) console.log(`❌ normalizeDate: Returning null - no valid date found`)
+
   return null
 }
 

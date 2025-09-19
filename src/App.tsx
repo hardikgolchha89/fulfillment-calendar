@@ -37,6 +37,7 @@ type OrderEvent = {
   start: Date
   end: Date
   resource: BosRow
+  allDay?: boolean
 }
 
 const locales = {}
@@ -301,6 +302,26 @@ function EventCell({ event }: { event: OrderEvent }) {
   )
 }
 
+// Month cell totals renderer
+function MonthDateHeader(props: any) {
+  const { label, date, events } = props
+  // Sum totals for this date
+  const totals = (events as OrderEvent[])
+    .filter((e) => startOfDay(e.start).getTime() === startOfDay(date).getTime())
+    .map((e) => computeStats(e.resource))
+    .reduce((acc, cur) => ({ hampers: acc.hampers + cur.hampers, units: acc.units + cur.units }), { hampers: 0, units: 0 })
+  return (
+    <div className="flex items-center justify-between">
+      <span>{label}</span>
+      {(totals.hampers > 0 || totals.units > 0) && (
+        <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700">
+          H {totals.hampers} • U {totals.units}
+        </span>
+      )}
+    </div>
+  )
+}
+
 type ViewMode = 'day' | 'week' | 'month'
 
 function App() {
@@ -400,12 +421,14 @@ function App() {
             const resource: BosRow = { ...(r as any) }
             ;(resource as any)['Order Number'] = String(orderNumber)
             ;(resource as any)['Delivery Date'] = dstr
+            ;(resource as any)['__eventDate'] = delivery
             ;(resource as any)['__itemsForEvent'] = parseItemsFromOfflineCell(items.join(', '))
             eventsOut.push({
               title: String(orderNumber),
               start: startOfDay(delivery),
               end: endOfDay(delivery),
               resource,
+              allDay: true,
             })
           }
         } else {
@@ -427,12 +450,14 @@ function App() {
           const resource: BosRow = { ...(r as any) }
           ;(resource as any)['Order Number'] = String(orderNumber)
           ;(resource as any)['Delivery Date'] = deliveryRawFallback as any
+          ;(resource as any)['__eventDate'] = delivery
           
           const event = {
             title: String(orderNumber),
             start: startOfDay(delivery),
             end: endOfDay(delivery),
             resource,
+            allDay: true,
           }
           
           // Debug logging for specific problematic order
@@ -601,7 +626,12 @@ function App() {
                 setDrawer({ open: true, row: e.resource })
                 if (e?.start) setCurrentDate(startOfDay(new Date(e.start)))
               }}
-                components={{ event: EventCell as any }}
+              components={{ event: EventCell as any, month: { dateHeader: MonthDateHeader as any } }}
+              toolbar
+              step={1440}
+              timeslots={1}
+              min={new Date(1970, 0, 1, 0, 0, 0)}
+              max={new Date(1970, 0, 1, 23, 59, 59)}
               popup
                 length={undefined}
               style={{ height: '100%' }}
@@ -638,7 +668,8 @@ function App() {
                         console.log(`  Raw Packing Date:`, drawer.row['Packing Date'])
                       }
                       
-                      const delivery = normalizeDate(drawer.row['Delivery Date'])
+                      const base = (drawer.row['__eventDate'] as any as Date) || normalizeDate(drawer.row['Delivery Date'])
+                      const delivery = base || null
                       const dispatch = normalizeDate(drawer.row['Dispatch Date']) || (delivery ? addDays(delivery, -Math.max(1, Number((txConfig as any).dispatchers ?? 1))) : null)
                       const packing = normalizeDate(drawer.row['Packing Date']) || (delivery ? addDays(delivery, -Math.max(1, Number((txConfig as any).packers ?? 2))) : null)
                       

@@ -328,6 +328,7 @@ function App() {
   const [currentDate, setCurrentDate] = useState<Date>(startOfDay(new Date()))
   const [view, setView] = useState<ViewMode>('month')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [analysisOpen, setAnalysisOpen] = useState(false)
   const [dateCheckerOpen, setDateCheckerOpen] = useState(false)
   const [dateCheckerInput, setDateCheckerInput] = useState('')
   const [dateCheckerResult, setDateCheckerResult] = useState<{ parsed: Date | null; formatted: string; error?: string } | null>(null)
@@ -600,6 +601,17 @@ function App() {
     }
   }
 
+  // Analysis helpers
+  function getEventDate(ev: OrderEvent): Date {
+    return (ev.resource as any)['__eventDate'] || ev.start
+  }
+
+  function getOrderRevenue(resource: BosRow, hamperValue: number, unitValue: number): { hampers: number; units: number; revenue: number } {
+    const { hampers, units } = computeStats(resource)
+    const revenue = hampers > 0 ? hampers * hamperValue : units * unitValue
+    return { hampers, units, revenue }
+  }
+
   const [dragOver, setDragOver] = useState(false)
 
   const eventStyleGetter = (event: OrderEvent) => {
@@ -712,6 +724,9 @@ function App() {
           <button className="ml-2 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm" onClick={loadSharedData}>
             <CalendarDays className="h-4 w-4" />
             <span>Load Shared Data</span>
+          </button>
+          <button className="ml-2 inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm" onClick={() => setAnalysisOpen(true)}>
+            <span>Analysis</span>
           </button>
           <label className="ml-2 inline-flex cursor-pointer items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
             <Upload className="h-4 w-4" />
@@ -1040,6 +1055,19 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Analysis modal */}
+      {analysisOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/30">
+          <div className="w-full max-w-3xl rounded bg-white p-4 shadow-lg">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-lg font-semibold">Analysis</div>
+              <button className="rounded border px-2 py-1" onClick={() => setAnalysisOpen(false)}>Close</button>
+            </div>
+            <AnalysisPanel events={events} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1088,3 +1116,92 @@ function StatusPill({ status }: { status: string }) {
 }
 
 export default App
+
+function AnalysisPanel({ events }: { events: OrderEvent[] }) {
+  const [from, setFrom] = useState('20-09-25')
+  const [to, setTo] = useState('31-10-25')
+  const [hamperValue, setHamperValue] = useState(1000)
+  const [unitValue, setUnitValue] = useState(350)
+  const fromDate = normalizeDate(from)
+  const toDate = normalizeDate(to)
+  const rows = useMemo(() => {
+    if (!fromDate || !toDate) return [] as any[]
+    const inRange = events.filter((ev) => {
+      const d = (ev.resource as any)['__eventDate'] || ev.start
+      const dd = startOfDay(d)
+      return dd.getTime() >= startOfDay(fromDate).getTime() && dd.getTime() <= startOfDay(toDate).getTime()
+    })
+    return inRange.map((ev) => {
+      const { hampers, units } = computeStats(ev.resource)
+      const revenue = hampers > 0 ? hampers * hamperValue : units * unitValue
+      const status = String(ev.resource['Order Status'] || '')
+      const eligible = /delivered|out\s*for\s*delivery|packed|printed/i.test(status)
+      return {
+        order: String(ev.resource['Order Number'] || ''),
+        date: format((ev.resource as any)['__eventDate'] || ev.start, 'dd-MM-yy'),
+        status,
+        hampers,
+        units,
+        revenue: eligible ? revenue : 0,
+        eligible,
+      }
+    })
+  }, [events, from, to, hamperValue, unitValue])
+  const totals = useMemo(() => rows.reduce((a, r) => ({ revenue: a.revenue + r.revenue, hampers: a.hampers + r.hampers, units: a.units + r.units }), { revenue: 0, hampers: 0, units: 0 }), [rows])
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <div className="text-xs text-gray-600">From (DD-MM-YY)</div>
+          <input className="rounded border px-2 py-1" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="20-09-25" />
+        </div>
+        <div>
+          <div className="text-xs text-gray-600">To (DD-MM-YY)</div>
+          <input className="rounded border px-2 py-1" value={to} onChange={(e) => setTo(e.target.value)} placeholder="31-10-25" />
+        </div>
+        <div>
+          <div className="text-xs text-gray-600">Hamper Value (INR)</div>
+          <input type="number" className="w-28 rounded border px-2 py-1" value={hamperValue} onChange={(e) => setHamperValue(Number(e.target.value||0))} />
+        </div>
+        <div>
+          <div className="text-xs text-gray-600">Unit Value when 0 hampers (INR)</div>
+          <input type="number" className="w-28 rounded border px-2 py-1" value={unitValue} onChange={(e) => setUnitValue(Number(e.target.value||0))} />
+        </div>
+      </div>
+      <div className="rounded border p-2 text-sm">
+        <div className="mb-2 font-medium">Totals (eligible statuses):</div>
+        <div className="flex gap-4 text-gray-800">
+          <div>Revenue: ₹ {totals.revenue.toLocaleString('en-IN')}</div>
+          <div>Hampers: {totals.hampers}</div>
+          <div>Units: {totals.units}</div>
+        </div>
+      </div>
+      <div className="max-h-80 overflow-auto rounded border">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-gray-50 text-left text-gray-600">
+            <tr>
+              <th className="px-2 py-1">Date</th>
+              <th className="px-2 py-1">Order</th>
+              <th className="px-2 py-1">Status</th>
+              <th className="px-2 py-1 text-right">Hampers</th>
+              <th className="px-2 py-1 text-right">Units</th>
+              <th className="px-2 py-1 text-right">Revenue</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className={i%2? 'bg-white':'bg-gray-50/40'}>
+                <td className="px-2 py-1">{r.date}</td>
+                <td className="px-2 py-1">{r.order}</td>
+                <td className="px-2 py-1">{r.status}</td>
+                <td className="px-2 py-1 text-right">{r.hampers}</td>
+                <td className="px-2 py-1 text-right">{r.units}</td>
+                <td className="px-2 py-1 text-right">₹ {r.revenue.toLocaleString('en-IN')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
